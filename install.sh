@@ -14,6 +14,34 @@ LOG_DIR="/var/log/snapshot-v3"
 API_PORT="${API_PORT:-5070}"
 FRONTEND_PORT="${FRONTEND_PORT:-5071}"
 
+ASSUME_YES=0
+SKIP_DEPS=0
+
+usage() {
+    cat <<EOF
+Instalador de snapshot-V3.
+
+Uso:
+  sudo ./install.sh              Interactivo. apt pide confirmación antes de instalar.
+  sudo ./install.sh -y           Responde sí a todo (apt en modo no-interactivo).
+  sudo ./install.sh --skip-deps  No toca apt. Útil si ya tienes restic/rclone/
+                                 python3-venv o si tu sistema tiene paquetes
+                                 third-party rotos (ej. anydesk) que rompen apt.
+
+Dependencias del sistema: restic rclone python3-venv
+(jq y mailutils son opcionales para JSON CLI y notificaciones por email.)
+EOF
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        -y|--yes) ASSUME_YES=1 ;;
+        --skip-deps) SKIP_DEPS=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Flag desconocida: $arg"; usage; exit 1 ;;
+    esac
+done
+
 # ---------- Helpers ----------
 need_root()   { [[ $EUID -eq 0 ]] || { echo "Ejecuta como root (sudo)"; exit 1; }; }
 bold() { printf "\033[1m%s\033[0m\n" "$*"; }
@@ -22,13 +50,63 @@ info() { printf "  • %s\n" "$*"; }
 need_root
 
 bold "[1/7] Dependencias del sistema"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y --no-install-recommends \
-    python3 python3-venv python3-pip \
-    restic rclone \
-    curl ca-certificates openssl \
-    rsync jq mailutils
+
+# Binarios que snapctl requiere SÍ o SÍ — si ya están, no tocamos apt.
+REQUIRED_BINS=(restic rclone)
+# Paquetes apt que instalamos si falta algo. No incluimos python3/rsync/curl/
+# openssl/ca-certificates porque vienen de fábrica en Ubuntu Server y listarlos
+# solo provoca que apt re-evalúe dependencias y arrastre upgrades no deseados.
+REQUIRED_PKGS=(restic rclone python3-venv jq mailutils)
+
+check_missing() {
+    local -n _out=$1
+    _out=()
+    local b
+    for b in "${REQUIRED_BINS[@]}"; do
+        command -v "$b" >/dev/null 2>&1 || _out+=("$b")
+    done
+    python3 -c 'import venv' 2>/dev/null || _out+=("python3-venv")
+}
+
+MISSING=()
+check_missing MISSING
+
+if [[ $SKIP_DEPS -eq 1 ]]; then
+    if [[ ${#MISSING[@]} -gt 0 ]]; then
+        echo "!! --skip-deps, pero faltan: ${MISSING[*]}"
+        echo "!! Instálalos manualmente y vuelve a ejecutar, o quita --skip-deps."
+        exit 1
+    fi
+    info "Saltando apt (--skip-deps). Dependencias verificadas."
+elif [[ ${#MISSING[@]} -eq 0 ]]; then
+    info "Todas las dependencias ya instaladas. Saltando apt."
+else
+    info "Faltan dependencias: ${MISSING[*]}"
+    echo "  Se ejecutará:"
+    echo "    apt-get install --no-install-recommends --no-upgrade ${REQUIRED_PKGS[*]}"
+    echo "  --no-upgrade → apt NO actualiza paquetes ya instalados."
+    echo "  apt te mostrará el resumen completo antes de ejecutar nada."
+    if [[ $ASSUME_YES -eq 0 ]]; then
+        read -rp "  ¿Continuar? [y/N] " ANS
+        [[ "$ANS" =~ ^[Yy]$ ]] || { echo "Abortado."; exit 1; }
+    fi
+    APT_ARGS=(--no-install-recommends --no-upgrade)
+    [[ $ASSUME_YES -eq 1 ]] && APT_ARGS+=(-y)
+    apt-get update || info "apt-get update falló; continuando con la cache existente."
+    if ! apt-get install "${APT_ARGS[@]}" "${REQUIRED_PKGS[@]}"; then
+        info "apt-get install devolvió error — suele ser un paquete ajeno"
+        info "(anydesk, postgresql-*, etc.) con post-install roto. Verificando"
+        info "si nuestras dependencias quedaron OK igualmente..."
+        check_missing MISSING
+        if [[ ${#MISSING[@]} -gt 0 ]]; then
+            echo "!! Aún faltan dependencias críticas: ${MISSING[*]}"
+            echo "!! Repara el sistema con:   sudo apt --fix-broken install"
+            echo "!! O instálalas a mano y re-ejecuta:   sudo bash install.sh --skip-deps"
+            exit 1
+        fi
+        info "Nuestras dependencias están presentes; continuamos pese al error de apt."
+    fi
+fi
 
 bold "[2/7] Usuarios y directorios"
 install -d -m 0750 "$INSTALL_ROOT" "$STATE_DIR" "$LOG_DIR"

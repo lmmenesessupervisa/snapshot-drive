@@ -57,14 +57,17 @@ snapshot-V3/
 ## Instalación (Ubuntu Server)
 
 ```bash
-sudo bash install.sh
+sudo bash install.sh              # interactivo: apt pide confirmación antes de instalar
+sudo bash install.sh -y           # responde sí a todo
+sudo bash install.sh --skip-deps  # NO toca apt; úsalo si ya tienes las deps o si
+                                  # el sistema tiene paquetes third-party rotos.
 ```
 
 El instalador:
 
-1. Instala `restic`, `rclone`, Python 3 venv, utilidades.
-2. Copia el proyecto a `/opt/snapshot-V3/`.
-3. Crea venv en `.venv/` y resuelve dependencias.
+1. Chequea si faltan `restic`, `rclone`, `python3-venv`. Si no falta nada, **salta apt entero**. Si falta algo, usa `apt-get install --no-upgrade` (no actualiza paquetes ya presentes) y tolera fallos de apt por paquetes ajenos rotos siempre que nuestras deps queden OK.
+2. Copia el proyecto a `/opt/snapshot-V3/` (con `rsync --delete`; `/etc/snapshot-v3/` queda a salvo fuera de esa ruta).
+3. Crea venv en `.venv/` y resuelve dependencias Python.
 4. Inicializa el repositorio restic local.
 5. Instala/activa servicios y timers systemd.
 6. Publica `snapctl` en `/usr/local/bin/`.
