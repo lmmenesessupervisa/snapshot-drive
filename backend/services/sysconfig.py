@@ -104,10 +104,15 @@ def _validate_remote_path(value: str) -> str:
         raise ConfigError("La carpeta de Drive es demasiado larga (máx 256).")
     if ".." in v.split("/"):
         raise ConfigError("La carpeta de Drive no puede contener '..'")
-    if not _FOLDER_RE.match(v):
+    # ${HOSTNAME} es un placeholder válido — common.sh lo expande en bash al
+    # sourcear snapshot.conf. Lo sustituimos por un token dummy solo para
+    # validar con el regex; guardamos el valor original.
+    v_check = v.replace("${HOSTNAME}", "H")
+    if not _FOLDER_RE.match(v_check):
         raise ConfigError(
             f"Carpeta inválida: {v!r}. Solo letras, dígitos, '_', '.', '-' "
-            "y '/' como separador (ej. 'snapshots/zfsantander')."
+            "y '/' como separador (ej. 'snapshots/zfsantander'). "
+            "Puedes usar '${HOSTNAME}' como comodín para el nombre del host."
         )
     return v
 
