@@ -31,6 +31,18 @@ LOCAL_CONF="${LOCAL_CONF:-/etc/snapshot-v3/snapshot.local.conf}"
 export RESTIC_REPOSITORY="${RESTIC_REPO}"
 export RESTIC_PASSWORD_FILE="${RESTIC_PASSWORD_FILE}"
 
+# Export para que snapctl-notify (subproceso Python) herede las credenciales
+# de SMTP. Variables sourceadas con `source` quedan en el shell pero no se
+# propagan a hijos sin export explícito — sin esto el notify salía sin
+# enviar correo silenciosamente.
+export SMTP_HOST="${SMTP_HOST:-}"
+export SMTP_PORT="${SMTP_PORT:-587}"
+export SMTP_USER="${SMTP_USER:-}"
+export SMTP_PASSWORD="${SMTP_PASSWORD:-}"
+export SMTP_FROM="${SMTP_FROM:-}"
+export NOTIFY_EMAIL="${NOTIFY_EMAIL:-}"
+export HOSTNAME="${HOSTNAME:-$(hostname -s)}"
+
 # ---------- Tuning rclone (se heredan por los subprocess de restic) -----
 # rclone lee automáticamente variables RCLONE_<FLAG> mayúsculas, así que
 # exportarlas aquí basta para que restic → rclone use estos valores sin
