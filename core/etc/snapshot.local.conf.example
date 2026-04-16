@@ -1,14 +1,15 @@
 # ===========================================================
 # snapshot-V3 — override local por instalación
 # -----------------------------------------------------------
-# Copia este archivo a snapshot.local.conf y rellena los valores:
+# install.sh ya crea /etc/snapshot-v3/snapshot.local.conf con permisos 0600
+# desde esta plantilla si no existe. Edítalo con sudo y rellena los valores.
 #
-#   sudo cp core/etc/snapshot.local.conf.example \
-#           core/etc/snapshot.local.conf
-#   sudo chmod 600 core/etc/snapshot.local.conf
+#   sudo nano /etc/snapshot-v3/snapshot.local.conf
+#   sudo systemctl restart snapshot-backend
 #
-# snapshot.local.conf está en .gitignore — no se sube al repo.
-# Sus valores sobreescriben a los de snapshot.conf.
+# Vive fuera de /opt/snapshot-V3/ para sobrevivir a upgrades (el rsync
+# --delete de install.sh no lo toca). Sus valores sobreescriben a los
+# de snapshot.conf al ser cargado por common.sh.
 # ===========================================================
 
 # Credenciales del OAuth Client (Device Flow) creado en Google Cloud Console

@@ -13,6 +13,7 @@ set -Eeuo pipefail
 INSTALL_ROOT="/opt/snapshot-V3"
 STATE_DIR="/var/lib/snapshot-v3"
 LOG_DIR="/var/log/snapshot-v3"
+LOCAL_CONF_DIR="/etc/snapshot-v3"
 SNAPCTL_LINK="/usr/local/bin/snapctl"
 
 PURGE=0
@@ -74,6 +75,7 @@ if [[ $PURGE -eq 1 ]]; then
          · SQLite del backend (historial de jobs/audit)
          · rclone.conf con el token OAuth de Google Drive
      - $LOG_DIR
+     - $LOCAL_CONF_DIR (snapshot.local.conf con GOOGLE_CLIENT_ID/SECRET)
 
      Los archivos ya subidos a Google Drive no se tocan — siguen en
      tu cuenta y puedes restaurarlos con rclone/restic más adelante.
@@ -85,7 +87,24 @@ EOF
     fi
 fi
 
-bold "[1/4] Deteniendo y deshabilitando servicios systemd"
+bold "[1/5] Deteniendo instancias en curso del template"
+# snapshot@create.timer disparado hace rato deja un snapshot@create.service
+# corriendo; `disable --now` al timer no lo mata. Si hay un backup en
+# vuelo, lo paramos explícitamente antes de borrar el código.
+mapfile -t RUNNING < <(
+    systemctl list-units --type=service --state=active --no-legend 'snapshot@*.service' 2>/dev/null \
+        | awk '{print $1}'
+)
+if [[ ${#RUNNING[@]} -gt 0 ]]; then
+    info "Instancias activas: ${RUNNING[*]}"
+    for u in "${RUNNING[@]}"; do
+        sd stop "$u"
+    done
+else
+    info "Sin instancias activas."
+fi
+
+bold "[2/5] Deteniendo y deshabilitando timers y servicios"
 UNITS=(
     snapshot-backend.service
     snapshot-healthcheck.timer
@@ -100,7 +119,7 @@ for u in "${UNITS[@]}"; do
     sd disable --now "$u"
 done
 
-bold "[2/4] Eliminando unit files de systemd"
+bold "[3/5] Eliminando unit files de systemd"
 UNIT_FILES=(
     /etc/systemd/system/snapshot-backend.service
     /etc/systemd/system/snapshot@.service
@@ -111,41 +130,44 @@ UNIT_FILES=(
 for f in "${UNIT_FILES[@]}"; do
     if [[ -e "$f" ]]; then
         run rm -f "$f"
-        info "borrado $f"
+        [[ $DRY -eq 0 ]] && info "borrado $f"
     fi
 done
 if [[ -d /etc/systemd/system/snapshot@reconcile.timer.d ]]; then
     run rm -rf /etc/systemd/system/snapshot@reconcile.timer.d
-    info "borrado /etc/systemd/system/snapshot@reconcile.timer.d"
+    [[ $DRY -eq 0 ]] && info "borrado /etc/systemd/system/snapshot@reconcile.timer.d"
 fi
 
 sd daemon-reload
-sd reset-failed
+# reset-failed SIN argumentos resetea TODO systemd, afectando a otros
+# servicios del host que el admin pueda estar investigando. Scope a lo
+# nuestro con patrones.
+sd reset-failed 'snapshot-*.service' 'snapshot-*.timer' \
+                'snapshot@*.service' 'snapshot@*.timer'
 
-bold "[3/4] Eliminando CLI y código"
+bold "[4/5] Eliminando CLI y código"
 if [[ -L "$SNAPCTL_LINK" || -e "$SNAPCTL_LINK" ]]; then
     run rm -f "$SNAPCTL_LINK"
-    info "borrado $SNAPCTL_LINK"
+    [[ $DRY -eq 0 ]] && info "borrado $SNAPCTL_LINK"
 fi
 if [[ -d "$INSTALL_ROOT" ]]; then
     run rm -rf "$INSTALL_ROOT"
-    info "borrado $INSTALL_ROOT"
+    [[ $DRY -eq 0 ]] && info "borrado $INSTALL_ROOT"
 fi
 
-bold "[4/4] Datos y logs"
+bold "[5/5] Datos, logs y override local"
 if [[ $PURGE -eq 1 ]]; then
-    if [[ -d "$STATE_DIR" ]]; then
-        run rm -rf "$STATE_DIR"
-        info "borrado $STATE_DIR"
-    fi
-    if [[ -d "$LOG_DIR" ]]; then
-        run rm -rf "$LOG_DIR"
-        info "borrado $LOG_DIR"
-    fi
+    for d in "$STATE_DIR" "$LOG_DIR" "$LOCAL_CONF_DIR"; do
+        if [[ -d "$d" ]]; then
+            run rm -rf "$d"
+            [[ $DRY -eq 0 ]] && info "borrado $d"
+        fi
+    done
 else
     info "Conservados (reinstalar mantiene estos datos intactos):"
-    [[ -d "$STATE_DIR" ]] && info "    $STATE_DIR"
-    [[ -d "$LOG_DIR"  ]] && info "    $LOG_DIR"
+    [[ -d "$STATE_DIR"      ]] && info "    $STATE_DIR       (backups restic, SQLite, rclone token)"
+    [[ -d "$LOG_DIR"        ]] && info "    $LOG_DIR       (historial JSON)"
+    [[ -d "$LOCAL_CONF_DIR" ]] && info "    $LOCAL_CONF_DIR           (OAuth GOOGLE_CLIENT_ID/SECRET)"
     info "Para eliminarlos ejecuta: sudo ./uninstall.sh --purge"
 fi
 

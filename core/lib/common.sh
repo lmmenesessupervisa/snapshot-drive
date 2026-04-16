@@ -12,8 +12,10 @@ CONF_FILE="${CONF_FILE:-${SNAPSHOT_ROOT}/core/etc/snapshot.conf}"
 [[ -f "$CONF_FILE" ]] && source "$CONF_FILE"
 
 # Override local por instalación (credenciales OAuth, tuning por sitio).
-# NO se trackea en git — se crea desde snapshot.local.conf.example en install.
-LOCAL_CONF="${LOCAL_CONF:-${SNAPSHOT_ROOT}/core/etc/snapshot.local.conf}"
+# Vive FUERA del árbol de código en /etc/snapshot-v3/ para sobrevivir a
+# upgrades (install.sh hace rsync --delete sobre $SNAPSHOT_ROOT y se comería
+# cualquier archivo local que no esté en el repo).
+LOCAL_CONF="${LOCAL_CONF:-/etc/snapshot-v3/snapshot.local.conf}"
 # shellcheck disable=SC1090
 [[ -f "$LOCAL_CONF" ]] && source "$LOCAL_CONF"
 

@@ -88,15 +88,16 @@ El repo **no contiene** las credenciales reales del OAuth Client. Tras
 `install.sh`, edita el override local con los valores de tu Google Cloud Console:
 
 ```bash
-sudo nano /opt/snapshot-V3/core/etc/snapshot.local.conf
+sudo nano /etc/snapshot-v3/snapshot.local.conf
 # Rellena GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET
 sudo systemctl restart snapshot-backend
 ```
 
-`snapshot.local.conf` está en `.gitignore`, se crea con permisos `600` y
-sobreescribe los valores de `snapshot.conf` al cargarse desde `common.sh`.
-En upgrades (re-ejecutar `install.sh`) el instalador respeta el archivo
-existente y no lo pisa.
+`snapshot.local.conf` vive en `/etc/snapshot-v3/` (fuera del árbol de código)
+con permisos `600`, sobreescribe los valores de `snapshot.conf` al cargarse
+desde `common.sh`, y **sobrevive a upgrades**: el `rsync --delete` de
+`install.sh` opera sobre `/opt/snapshot-V3/` y no toca `/etc/snapshot-v3/`.
+El desinstalador lo conserva por defecto y solo lo borra con `--purge`.
 
 ## Configuración de Google Drive (rclone)
 

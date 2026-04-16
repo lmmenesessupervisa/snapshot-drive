@@ -42,14 +42,18 @@ chmod +x "$INSTALL_ROOT/core/bin/snapctl" "$INSTALL_ROOT/core/lib/common.sh"
 ln -sf "$INSTALL_ROOT/core/bin/snapctl" /usr/local/bin/snapctl
 
 # Override local con credenciales (OAuth, notificaciones, etc).
-# Si ya existe, no lo tocamos — respeta valores del cliente en upgrades.
-LOCAL_CONF="$INSTALL_ROOT/core/etc/snapshot.local.conf"
+# Vive en /etc/snapshot-v3/ — FUERA del árbol de código — para que el
+# rsync --delete de arriba no lo borre en los upgrades y para desacoplar
+# los secretos del cliente del ciclo de vida del código.
+LOCAL_CONF_DIR="/etc/snapshot-v3"
+LOCAL_CONF="$LOCAL_CONF_DIR/snapshot.local.conf"
+install -d -m 0700 "$LOCAL_CONF_DIR"
 if [[ ! -f "$LOCAL_CONF" ]]; then
     install -m 0600 "$INSTALL_ROOT/core/etc/snapshot.local.conf.example" "$LOCAL_CONF"
-    info "Creado $LOCAL_CONF (edítalo para poner GOOGLE_CLIENT_ID/SECRET)"
+    info "Creado $LOCAL_CONF (edítalo con GOOGLE_CLIENT_ID/SECRET)"
 else
     chmod 600 "$LOCAL_CONF" || true
-    info "Override local ya existente, respetado: $LOCAL_CONF"
+    info "Override local conservado: $LOCAL_CONF"
 fi
 
 bold "[4/7] Virtualenv Python y dependencias backend"
