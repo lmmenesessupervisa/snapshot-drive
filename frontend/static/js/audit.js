@@ -51,11 +51,12 @@ function fmtTs(ts) {
 
 function healthChip(h) {
   const cfg = {
-    ok:      { bg: "bg-emerald-500/15", bd: "border-emerald-500/40", tx: "text-emerald-300", label: "OK" },
-    fail:    { bg: "bg-rose-500/15",    bd: "border-rose-500/40",    tx: "text-rose-300",    label: "FALLO" },
-    silent:  { bg: "bg-amber-500/15",   bd: "border-amber-500/40",   tx: "text-amber-300",   label: "SILENCIO" },
-    running: { bg: "bg-sky-500/15",     bd: "border-sky-500/40",     tx: "text-sky-300",     label: "EN CURSO" },
-    unknown: { bg: "bg-slate-500/15",   bd: "border-slate-500/40",   tx: "text-slate-300",   label: "—" },
+    ok:         { bg: "bg-emerald-500/15", bd: "border-emerald-500/40", tx: "text-emerald-300", label: "OK" },
+    fail:       { bg: "bg-rose-500/15",    bd: "border-rose-500/40",    tx: "text-rose-300",    label: "FALLO" },
+    silent:     { bg: "bg-amber-500/15",   bd: "border-amber-500/40",   tx: "text-amber-300",   label: "SILENCIO" },
+    running:    { bg: "bg-sky-500/15",     bd: "border-sky-500/40",     tx: "text-sky-300",     label: "EN CURSO" },
+    unreported: { bg: "bg-violet-500/15",  bd: "border-violet-500/40",  tx: "text-violet-300",  label: "SIN REPORTAR" },
+    unknown:    { bg: "bg-slate-500/15",   bd: "border-slate-500/40",   tx: "text-slate-300",   label: "—" },
   }[h] || { bg: "bg-slate-500/15", bd: "border-slate-500/40", tx: "text-slate-300", label: h };
   return `<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border ${cfg.bg} ${cfg.bd} ${cfg.tx}">${cfg.label}</span>`;
 }
@@ -97,6 +98,25 @@ function clientRow(c) {
 }
 
 function drilldownRow(c) {
+  if (c.health === "unreported") {
+    return `
+      <tr class="border-t border-[var(--border)] bg-black/30">
+        <td colspan="7" class="p-0">
+          <div class="px-10 py-4 text-xs text-[var(--muted)]">
+            <div class="text-[11px] uppercase tracking-wider mb-2 text-violet-300">Sin reportar · ${c.host}</div>
+            Existe un repo restic en el Drive para este cliente, pero todavía no
+            hay un <code class="mono">_status/${c.host}.json</code>. Probablemente
+            corre una versión anterior de snapctl que no escribe metadata.
+            <div class="mt-2 text-[var(--muted-2)]">
+              Para activarlo, en esa máquina:
+              <pre class="mt-1 mono text-[11px] bg-black/40 rounded p-2 text-slate-300">cd ~/snapshot-drive &amp;&amp; git pull &amp;&amp; sudo bash install.sh
+sudo snapctl create --tag post-upgrade</pre>
+            </div>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
   const rows = (c.history || []).slice(0, 20).map(h => {
     const tx = h.status === "ok" ? "text-emerald-300" : h.status === "fail" ? "text-rose-300" : "text-sky-300";
     const err = h.error ? `<div class="text-rose-400 text-[11px] mt-0.5">${h.error}</div>` : "";
@@ -130,7 +150,10 @@ function drilldownRow(c) {
 
 function applyFilters(clients) {
   let out = clients;
-  if (STATE.failOnly) out = out.filter(c => c.health === "fail" || c.health === "silent");
+  if (STATE.failOnly) {
+    // "Atención" = fallidos, silenciosos o sin reportar (estados que piden acción).
+    out = out.filter(c => c.health === "fail" || c.health === "silent" || c.health === "unreported");
+  }
   if (STATE.filterText) {
     const needle = STATE.filterText.toLowerCase();
     out = out.filter(c => c.host.toLowerCase().includes(needle));
@@ -161,12 +184,13 @@ function renderTable() {
 
 function renderKpis() {
   const s = STATE.data?.summary || {};
-  $("kpi-total").textContent   = s.total    ?? "0";
-  $("kpi-ok").textContent      = s.ok       ?? "0";
-  $("kpi-fail").textContent    = s.fail     ?? "0";
-  $("kpi-silent").textContent  = s.silent   ?? "0";
-  $("kpi-running").textContent = s.running  ?? "0";
-  $("audit-last-ts").textContent = new Date().toLocaleTimeString("es-ES", { hour12: false });
+  $("kpi-total").textContent      = s.total      ?? "0";
+  $("kpi-ok").textContent         = s.ok         ?? "0";
+  $("kpi-fail").textContent       = s.fail       ?? "0";
+  $("kpi-silent").textContent     = s.silent     ?? "0";
+  $("kpi-running").textContent    = s.running    ?? "0";
+  $("kpi-unreported").textContent = s.unreported ?? "0";
+  $("audit-last-ts").textContent  = new Date().toLocaleTimeString("es-ES", { hour12: false });
 }
 
 function showError(msg) {

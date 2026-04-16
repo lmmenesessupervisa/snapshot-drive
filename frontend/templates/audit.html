@@ -4,7 +4,7 @@
 
 {% block content %}
 <!-- KPIs -->
-<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+<div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
   <div class="card p-4">
     <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Clientes</div>
     <div class="text-3xl font-semibold mt-1" id="kpi-total">—</div>
@@ -25,6 +25,10 @@
     <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">En curso</div>
     <div class="text-3xl font-semibold mt-1 text-sky-400" id="kpi-running">—</div>
   </div>
+  <div class="card p-4 border-violet-500/30">
+    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Sin reportar</div>
+    <div class="text-3xl font-semibold mt-1 text-violet-400" id="kpi-unreported">—</div>
+  </div>
 </div>
 
 <!-- Controles -->
@@ -32,7 +36,7 @@
   <div class="flex items-center gap-3 text-sm">
     <label class="flex items-center gap-2 cursor-pointer">
       <input type="checkbox" id="filter-fail-only" class="accent-rose-500">
-      <span class="text-[var(--muted)]">Solo fallidos / silenciosos</span>
+      <span class="text-[var(--muted)]">Solo los que piden atención</span>
     </label>
     <input type="search" id="filter-search" class="input w-64" placeholder="Buscar por hostname…">
   </div>

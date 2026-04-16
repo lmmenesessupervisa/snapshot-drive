@@ -115,6 +115,30 @@ class AuditService:
             raise AuditError(f"rclone lsjson devolvió JSON inválido: {e}")
         return [it for it in items if it.get("Name", "").endswith(".json") and not it.get("IsDir")]
 
+    def _list_repo_dirs(self) -> list[dict]:
+        """Lista las subcarpetas de snapshots/ — cada una es el repo restic
+        de un cliente. Sirve para mostrar también clientes que aún no han
+        reportado status.json (p.ej. todavía corriendo versión vieja de
+        snapctl que no escribe el archivo).
+
+        Se excluye '_status' que es nuestro directorio de metadata.
+        """
+        path = f"{self.remote}:{self.remote_path}/"
+        try:
+            out = self._rclone("lsjson", path, "--dirs-only", "--no-modtime", timeout=30)
+        except AuditError as e:
+            if "directory not found" in str(e).lower() or "not found" in str(e).lower():
+                return []
+            raise
+        try:
+            items = json.loads(out or "[]")
+        except json.JSONDecodeError as e:
+            raise AuditError(f"rclone lsjson dirs devolvió JSON inválido: {e}")
+        return [
+            it for it in items
+            if it.get("IsDir") and it.get("Name") and it["Name"] != "_status"
+        ]
+
     def _read_status(self, host: str) -> dict:
         path = f"{self.remote}:{self.remote_path}/_status/{host}.json"
         raw = self._rclone("cat", path, timeout=20)
@@ -130,17 +154,30 @@ class AuditService:
             if cached is not None:
                 return cached
 
+        # Union de hosts: los que tienen _status/<host>.json + los que solo
+        # tienen el repo restic (snapshots/<host>/) todavía sin status.
         try:
-            files = self._list_status_files()
+            status_files = self._list_status_files()
+            repo_dirs = self._list_repo_dirs()
         except AuditError as e:
             log.warning("audit lsjson falló: %s", e)
             raise
 
+        hosts_with_status = {
+            f["Name"][:-5] for f in status_files if f.get("Name", "").endswith(".json")
+        }
+        hosts_with_repo = {d["Name"] for d in repo_dirs}
+        all_hosts = hosts_with_status | hosts_with_repo
+
         clients: list[ClientStatus] = []
         now = time.time()
-        for f in files:
-            name = f.get("Name", "")
-            host = name[:-5] if name.endswith(".json") else name
+        for host in sorted(all_hosts, key=str.lower):
+            if host not in hosts_with_status:
+                # Repo restic existe pero el cliente aún no ha reportado status.
+                # Probablemente corre una versión vieja de snapctl.
+                c = ClientStatus(host=host, health="unreported")
+                clients.append(c)
+                continue
             try:
                 raw = self._read_status(host)
             except AuditError as e:
@@ -157,7 +194,6 @@ class AuditService:
             c.health, c.silent_hours = self._classify(c, now)
             clients.append(c)
 
-        clients.sort(key=lambda c: c.host.lower())
         self._cache_set("all", clients)
         return clients
 

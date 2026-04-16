@@ -136,6 +136,7 @@ def api_status():
             "fail": by_health.get("fail", 0),
             "silent": by_health.get("silent", 0),
             "running": by_health.get("running", 0),
+            "unreported": by_health.get("unreported", 0),
             "unknown": by_health.get("unknown", 0),
             "silence_threshold_h": _svc().silence_threshold_h,
         },
