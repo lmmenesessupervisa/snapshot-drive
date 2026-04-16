@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Auditoría{% endblock %}
+{% block header %}Auditoría de clientes{% endblock %}
+
+{% block content %}
+<!-- KPIs -->
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+  <div class="card p-4">
+    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Clientes</div>
+    <div class="text-3xl font-semibold mt-1" id="kpi-total">—</div>
+  </div>
+  <div class="card p-4 border-emerald-500/30">
+    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Exitosos</div>
+    <div class="text-3xl font-semibold mt-1 text-emerald-400" id="kpi-ok">—</div>
+  </div>
+  <div class="card p-4 border-rose-500/30">
+    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Fallidos</div>
+    <div class="text-3xl font-semibold mt-1 text-rose-400" id="kpi-fail">—</div>
+  </div>
+  <div class="card p-4 border-amber-500/30">
+    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Silenciosos</div>
+    <div class="text-3xl font-semibold mt-1 text-amber-400" id="kpi-silent">—</div>
+  </div>
+  <div class="card p-4 border-sky-500/30">
+    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">En curso</div>
+    <div class="text-3xl font-semibold mt-1 text-sky-400" id="kpi-running">—</div>
+  </div>
+</div>
+
+<!-- Controles -->
+<div class="flex items-center justify-between mb-3 gap-3 flex-wrap">
+  <div class="flex items-center gap-3 text-sm">
+    <label class="flex items-center gap-2 cursor-pointer">
+      <input type="checkbox" id="filter-fail-only" class="accent-rose-500">
+      <span class="text-[var(--muted)]">Solo fallidos / silenciosos</span>
+    </label>
+    <input type="search" id="filter-search" class="input w-64" placeholder="Buscar por hostname…">
+  </div>
+  <div class="flex items-center gap-3 text-xs">
+    <span class="text-[var(--muted)]">Última actualización: <span id="audit-last-ts" class="mono">—</span></span>
+    <button id="btn-refresh" class="btn-secondary">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>
+      Refrescar
+    </button>
+    <a href="{{ url_for('audit.logout') }}" class="text-[var(--muted)] hover:text-slate-100 text-xs">Salir</a>
+  </div>
+</div>
+
+<!-- Tabla -->
+<div class="rounded-xl border border-[var(--border)] bg-black/20 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-[11px] uppercase tracking-wider text-[var(--muted)] border-b border-[var(--border)]">
+        <th class="text-left py-3 px-4">Cliente</th>
+        <th class="text-left py-3 px-4">Estado</th>
+        <th class="text-left py-3 px-4">Última operación</th>
+        <th class="text-right py-3 px-4">Último backup OK</th>
+        <th class="text-right py-3 px-4">Silencio</th>
+        <th class="text-right py-3 px-4">OK / Fail</th>
+        <th class="text-right py-3 px-4 pr-6"></th>
+      </tr>
+    </thead>
+    <tbody id="audit-rows">
+      <tr><td colspan="7" class="py-10 text-center text-[var(--muted)]">Cargando…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div id="audit-error" class="hidden mt-4 rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 text-sm p-4"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/audit.js') }}"></script>
+{% endblock %}

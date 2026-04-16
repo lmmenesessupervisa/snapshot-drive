@@ -17,7 +17,34 @@
 GOOGLE_CLIENT_ID=""
 GOOGLE_CLIENT_SECRET=""
 
-# (Opcional) Overrides por sitio — descomentar según haga falta:
-# NOTIFY_EMAIL="ops@ejemplo.com"
+# --- SMTP para notificaciones por email -------------------------------------
+# snapctl envía un correo tras cada operación (create, reconcile, prune) si
+# estas variables están completas. Deja SMTP_HOST vacío para desactivar.
+# Si usas Gmail: SMTP_HOST=smtp.gmail.com, SMTP_PORT=587 y SMTP_PASSWORD
+# debe ser una App Password (16 chars), NO la contraseña real de la cuenta.
+#
+# ATENCIÓN: estas credenciales quedan en claro (con permisos 600) en el
+# servidor del cliente. Si no confías plenamente en los administradores del
+# servidor, usa una cuenta SMTP dedicada sin otros privilegios, o mueve las
+# notificaciones a la máquina ops centralizada.
+SMTP_HOST=""
+SMTP_PORT="587"
+SMTP_USER=""
+SMTP_PASSWORD=""
+SMTP_FROM=""
+NOTIFY_EMAIL=""
+
+# --- Vista de auditoría agregada (solo instalación ops) ---------------------
+# /audit muestra el estado de TODOS los clientes leyendo el shared Drive.
+# Ponlo a 1 ÚNICAMENTE en tu máquina ops, nunca en un servidor de cliente
+# (los clientes no deben poder ver a otros clientes).
+SNAPSHOT_AUDIT_VIEWER="0"
+# Contraseña para acceder a /audit (el único login de la vista).
+AUDIT_PASSWORD=""
+# Carpeta raíz dentro del shared Drive donde están los subfolders por host
+# (si cada cliente sube a 'snapshots/<hostname>/', déjalo en 'snapshots').
+AUDIT_REMOTE_PATH="snapshots"
+
+# (Opcional) Webhook para POST JSON en cada operación:
 # NOTIFY_WEBHOOK="https://hooks.example.com/xyz"
 # RCLONE_BWLIMIT="8M"

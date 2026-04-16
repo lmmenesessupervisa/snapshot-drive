@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Auditoría · snapshot-V3</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="h-full font-sans antialiased flex items-center justify-center">
+  <div class="w-full max-w-sm px-6">
+    <div class="text-center mb-6">
+      <div class="brand-logo mx-auto mb-4">S</div>
+      <div class="text-lg font-semibold tracking-tight">snapshot-V3 · Auditoría</div>
+      <div class="text-xs text-[var(--muted)] mt-1">Acceso restringido</div>
+    </div>
+
+    <div class="rounded-xl border border-[var(--border)] bg-black/20 p-6">
+      <form method="POST" action="{{ url_for('audit.login_submit') }}" class="space-y-4">
+        <div>
+          <label class="block text-[11px] uppercase tracking-wider text-[var(--muted)] mb-1">Contraseña</label>
+          <input type="password" name="password" autocomplete="current-password" required autofocus
+                 class="input w-full font-mono" placeholder="••••••••••">
+        </div>
+        {% if error %}
+          <div class="text-xs text-rose-400">{{ error }}</div>
+        {% endif %}
+        <button type="submit" class="btn-primary w-full justify-center">Entrar</button>
+      </form>
+    </div>
+
+    <div class="text-center mt-4 text-[11px] text-[var(--muted-2)]">
+      Solo para administradores ops. Los intentos fallidos se registran.
+    </div>
+  </div>
+</body>
+</html>

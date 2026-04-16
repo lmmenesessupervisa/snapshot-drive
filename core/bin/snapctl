@@ -173,7 +173,9 @@ cmd_create() {
             _drive_op_in_progress=0
             local dur=$(( $(date +%s) - start_ts ))
             log_info "Snapshot en Drive OK (${dur}s)"
-            notify "Backup OK en $HOSTNAME (Drive)" "Duración ${dur}s, tag=$tag"
+            local _meta; _meta="$(printf '{"tag":"%s","duration_s":%d,"target":"drive"}' "$tag" "$dur")"
+            notify "Backup OK en $HOSTNAME (Drive)" "Duración ${dur}s, tag=$tag" "ok" "$_meta"
+            write_status_drive "create" "ok" "$_meta"
             return 0
         fi
         rc=$?
@@ -196,11 +198,16 @@ cmd_create() {
         $BACKUP_PATHS; then
         local dur=$(( $(date +%s) - start_ts ))
         log_info "Snapshot en LOCAL ok (${dur}s) — pendiente de reconciliar"
-        notify "Backup OK en $HOSTNAME (LOCAL pendiente)" "Duración ${dur}s, tag=$tag"
+        local _meta; _meta="$(printf '{"tag":"%s","duration_s":%d,"target":"local"}' "$tag" "$dur")"
+        notify "Backup OK en $HOSTNAME (LOCAL pendiente)" "Duración ${dur}s, tag=$tag. Reconcile pendiente a Drive." "ok" "$_meta"
+        write_status_drive "create" "ok" "$_meta"
     else
         rc=$?
+        local dur=$(( $(date +%s) - start_ts ))
         log_error "Fallo en restic backup local (rc=$rc)"
-        notify "Backup FALLÓ en $HOSTNAME" "restic rc=$rc"
+        local _meta; _meta="$(printf '{"tag":"%s","duration_s":%d,"target":"local","error":"restic rc=%d"}' "$tag" "$dur" "$rc")"
+        notify "Backup FALLÓ en $HOSTNAME" "restic rc=$rc, tag=$tag" "fail" "$_meta"
+        write_status_drive "create" "fail" "$_meta"
         return "$rc"
     fi
 }
@@ -235,7 +242,9 @@ cmd_reconcile() {
         _restic_local forget $ids --prune
     fi
     log_info "Reconciliación completada — repo local liberado"
-    notify "Reconcile OK en $HOSTNAME" "$pending snapshot(s) movidos a Drive"
+    local _meta; _meta="$(printf '{"moved":%d,"target":"drive"}' "$pending")"
+    notify "Reconcile OK en $HOSTNAME" "$pending snapshot(s) movidos a Drive" "ok" "$_meta"
+    write_status_drive "reconcile" "ok" "$_meta"
 }
 
 cmd_list() {

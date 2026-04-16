@@ -83,15 +83,113 @@ ensure_dirs() {
 }
 
 # ---------- Notificaciones ----------
+# notify SUBJECT BODY STATUS [META_JSON]
+#   STATUS: ok | fail | info   (para color del banner en el correo HTML)
+#   META_JSON: metadata estructurada {tag, duration_s, size_bytes, snapshot_id,
+#             target, error} — se pinta como tabla en el correo.
 notify() {
-    local subject="$1" body="$2"
-    if [[ -n "${NOTIFY_EMAIL:-}" ]] && command -v mail >/dev/null 2>&1; then
-        printf '%s\n' "$body" | mail -s "[snapshot-V3] $subject" "$NOTIFY_EMAIL" || true
+    local subject="$1" body="$2" status="${3:-info}" meta="${4:-{}}"
+    # SMTP via Python script (no depende de mailutils, usa el Python bundled)
+    if [[ -n "${SMTP_HOST:-}" && -n "${NOTIFY_EMAIL:-}" && -x "${SNAPSHOT_ROOT}/core/bin/snapctl-notify" ]]; then
+        local _err
+        _err="$(printf '%s\n' "$body" | \
+            SNAPSHOT_NOTIFY_STATUS="$status" SNAPSHOT_NOTIFY_META="$meta" \
+            "${SNAPSHOT_ROOT}/core/bin/snapctl-notify" "$subject" 2>&1 >/dev/null)" || true
+        [[ -n "$_err" ]] && log_warn "snapctl-notify: $_err"
     fi
+    # Webhook JSON (opcional)
     if [[ -n "${NOTIFY_WEBHOOK:-}" ]] && command -v curl >/dev/null 2>&1; then
         curl -fsS -X POST -H 'Content-Type: application/json' \
-            -d "$(printf '{"subject":"%s","body":"%s","host":"%s"}' "$subject" "$body" "$HOSTNAME")" \
+            -d "$(printf '{"subject":"%s","body":"%s","host":"%s","status":"%s","meta":%s}' \
+                  "$subject" "$body" "$HOSTNAME" "$status" "$meta")" \
             "$NOTIFY_WEBHOOK" >/dev/null 2>&1 || true
+    fi
+}
+
+# ---------- Status JSON en Drive (fuente de la vista /audit) ----------
+# Escribe /$AUDIT_REMOTE_PATH/<hostname>.json en el shared Drive con el
+# estado de la última operación + historial corto. La vista agregada en
+# la máquina ops lee estos JSON para pintar el dashboard.
+#
+# Si Drive no está vinculado o rclone no está disponible, es un no-op silencioso.
+#
+# Uso: write_status_drive OP STATUS META_JSON
+#   OP:     create | reconcile | prune | init
+#   STATUS: ok | fail | running
+#   META:   JSON {tag, duration_s, size_bytes, snapshot_id, target, error}
+write_status_drive() {
+    local op="$1" status="$2" meta="${3:-{}}"
+
+    # Gate: Drive debe estar vinculado (rclone.conf tiene token)
+    [[ -f "${RCLONE_CONFIG:-}" ]] || return 0
+    command -v rclone >/dev/null 2>&1 || return 0
+    _ini_read "${RCLONE_REMOTE:-gdrive}" "token" 2>/dev/null | grep -q "access_token" || return 0
+
+    # Ruta del audit dentro del shared Drive. Convención: la raíz del árbol
+    # del cliente (snapshots/<hostname>/) tiene un parent — ahí va el JSON.
+    #    shared/snapshots/<hostname>/       ← restic repo
+    #    shared/snapshots/_status/<host>.json ← metadata nuestra
+    local parent="${RCLONE_REMOTE_PATH%/*}"
+    [[ -z "$parent" || "$parent" == "$RCLONE_REMOTE_PATH" ]] && parent=""
+    local status_path
+    if [[ -n "$parent" ]]; then
+        status_path="${parent}/_status/${HOSTNAME}.json"
+    else
+        status_path="_status/${HOSTNAME}.json"
+    fi
+
+    # Componer el JSON nuevo mergeando con el existente (para conservar historial)
+    local new_json
+    if ! new_json="$(
+        existing="$(rclone --config "$RCLONE_CONFIG" cat "${RCLONE_REMOTE}:${status_path}" 2>/dev/null || echo '{}')"
+        python3 - "$existing" "$op" "$status" "$meta" "$HOSTNAME" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+
+existing_raw, op, status, meta_raw, host = sys.argv[1:6]
+try: existing = json.loads(existing_raw)
+except Exception: existing = {}
+try: meta = json.loads(meta_raw) if meta_raw else {}
+except Exception: meta = {}
+
+now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+event = {"op": op, "ts": now, "status": status}
+event.update(meta)
+
+history = existing.get("history") or []
+# Si el evento anterior era "running" del mismo op, lo reemplazamos.
+if history and history[0].get("status") == "running" and history[0].get("op") == op:
+    history[0] = event
+else:
+    history.insert(0, event)
+history = history[:50]
+
+totals = existing.get("totals") or {}
+if status == "ok":
+    totals["last_successful_backup_ts"] = now
+    if op == "create":
+        totals["create_count"] = (totals.get("create_count") or 0) + 1
+elif status == "fail":
+    totals["last_failure_ts"] = now
+    totals["fail_count"] = (totals.get("fail_count") or 0) + 1
+
+out = {
+    "host": host,
+    "last": event,
+    "totals": totals,
+    "history": history,
+    "updated_ts": now,
+}
+print(json.dumps(out, indent=2))
+PY
+    )"; then
+        log_warn "No se pudo componer status.json para Drive"
+        return 0
+    fi
+
+    # Subir: rclone rcat lee stdin y escribe al remoto atómicamente.
+    if ! printf '%s' "$new_json" | rclone --config "$RCLONE_CONFIG" rcat "${RCLONE_REMOTE}:${status_path}" 2>/dev/null; then
+        log_warn "No se pudo escribir status.json en Drive (${status_path})"
     fi
 }
 

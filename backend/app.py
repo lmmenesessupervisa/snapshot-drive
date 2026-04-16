@@ -20,6 +20,7 @@ from flask import Flask, jsonify  # noqa: E402
 from backend.config import Config  # noqa: E402
 from backend.models.db import DB  # noqa: E402
 from backend.routes.api import api_bp  # noqa: E402
+from backend.routes.audit import audit_bp  # noqa: E402
 from backend.routes.web import web_bp  # noqa: E402
 from backend.services.snapctl import SnapctlService  # noqa: E402
 
@@ -60,6 +61,13 @@ def create_app() -> Flask:
 
     app.register_blueprint(api_bp)
     app.register_blueprint(web_bp)
+    app.register_blueprint(audit_bp)
+
+    # Expón a las plantillas si /audit está habilitado (sirve para mostrar
+    # el link de navegación solo en deploys de ops).
+    @app.context_processor
+    def _inject_flags():
+        return {"audit_enabled": Config.AUDIT_ENABLED}
 
     @app.errorhandler(404)
     def _404(e):

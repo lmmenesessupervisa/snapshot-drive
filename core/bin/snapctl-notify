@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""snapctl-notify — envía un correo SMTP con el estado de una operación.
+
+Se invoca desde common.sh tras cada create/reconcile/prune. Lee la config
+SMTP del entorno (que common.sh exporta tras sourcear snapshot.conf y
+snapshot.local.conf) y manda un HTML sencillo pero profesional, con el
+mismo cuerpo de texto plano como fallback.
+
+Uso:
+    echo "cuerpo del mensaje" | snapctl-notify "Asunto"
+
+Variables de entorno esperadas:
+    SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD SMTP_FROM NOTIFY_EMAIL
+    SNAPSHOT_NOTIFY_STATUS   ok | fail | info  (pinta el banner del correo)
+    SNAPSHOT_NOTIFY_META     JSON opcional {tag, duration, size, snapshot_id}
+
+Sale con rc=0 si se envió (o si SMTP no está configurado y por lo tanto
+la notificación es un no-op deliberado), rc!=0 solo si los settings
+estaban completos pero el envío explotó. Esto permite que common.sh
+llame al binario siempre y no falle cuando el cliente aún no ha
+configurado SMTP.
+"""
+from __future__ import annotations
+
+import json
+import os
+import smtplib
+import socket
+import sys
+from datetime import datetime, timezone
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+
+STATUS_STYLES = {
+    "ok":   ("#16a34a", "OPERACION EXITOSA"),
+    "fail": ("#dc2626", "OPERACION FALLIDA"),
+    "info": ("#0ea5e9", "NOTIFICACION"),
+}
+
+
+def _env(name: str, default: str = "") -> str:
+    return (os.environ.get(name) or default).strip()
+
+
+def _human_bytes(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024 or unit == "TB":
+            return f"{n:,.1f} {unit}" if unit != "B" else f"{n:,} B"
+        n /= 1024
+    return f"{n} B"
+
+
+def build_html(subject: str, body: str, host: str, status: str, meta: dict) -> str:
+    color, label = STATUS_STYLES.get(status, STATUS_STYLES["info"])
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    rows = []
+    if meta.get("tag"):
+        rows.append(("Tag", meta["tag"]))
+    if meta.get("duration_s") is not None:
+        d = int(meta["duration_s"])
+        rows.append(("Duración", f"{d // 60}m {d % 60}s" if d >= 60 else f"{d}s"))
+    if meta.get("size_bytes") is not None:
+        rows.append(("Tamaño", _human_bytes(int(meta["size_bytes"]))))
+    if meta.get("snapshot_id"):
+        rows.append(("Snapshot ID", f"<code style=\"font-family:ui-monospace,Consolas,monospace;font-size:12px\">{meta['snapshot_id']}</code>"))
+    if meta.get("target"):
+        rows.append(("Destino", meta["target"]))
+    if meta.get("error"):
+        rows.append(("Error", f"<span style=\"color:#dc2626\">{meta['error']}</span>"))
+
+    rows_html = "".join(
+        f"<tr><td style=\"padding:6px 12px 6px 0;color:#64748b;font-size:12px;vertical-align:top\">{k}</td>"
+        f"<td style=\"padding:6px 0;font-size:13px;color:#0f172a\">{v}</td></tr>"
+        for k, v in rows
+    )
+
+    return f"""<!doctype html>
+<html><body style="margin:0;padding:24px;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;color:#0f172a">
+  <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.08),0 1px 2px rgba(15,23,42,0.06)">
+    <div style="background:{color};color:#ffffff;padding:18px 22px">
+      <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;opacity:0.9">snapshot-V3</div>
+      <div style="font-size:19px;font-weight:600;margin-top:2px">{label}</div>
+      <div style="font-size:13px;opacity:0.88;margin-top:3px">Cliente: <strong>{host}</strong></div>
+    </div>
+    <div style="padding:20px 22px 12px 22px">
+      <div style="font-size:14px;color:#334155;margin-bottom:14px">{subject}</div>
+      <table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%">
+        {rows_html}
+      </table>
+    </div>
+    <div style="padding:12px 22px 18px 22px;border-top:1px solid #e2e8f0">
+      <div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Log</div>
+      <pre style="font-family:ui-monospace,Consolas,monospace;font-size:12px;margin:0;white-space:pre-wrap;color:#475569;background:#f8fafc;padding:10px;border-radius:6px">{body}</pre>
+    </div>
+    <div style="padding:10px 22px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#94a3b8;text-align:center">
+      Generado automáticamente por snapshot-V3 · {now}
+    </div>
+  </div>
+</body></html>"""
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        print("uso: snapctl-notify SUBJECT  (cuerpo por stdin)", file=sys.stderr)
+        return 2
+
+    host = _env("SMTP_HOST")
+    user = _env("SMTP_USER")
+    password = _env("SMTP_PASSWORD").replace(" ", "")
+    sender = _env("SMTP_FROM") or user
+    to_addr = _env("NOTIFY_EMAIL")
+
+    # Si SMTP no está configurado, salir OK — es un no-op deliberado, no un error.
+    if not all([host, user, password, sender, to_addr]):
+        return 0
+
+    subject_raw = sys.argv[1]
+    body = sys.stdin.read().strip() or "(sin detalle)"
+    hostname = _env("HOSTNAME") or socket.gethostname().split(".")[0]
+    status = _env("SNAPSHOT_NOTIFY_STATUS", "info").lower()
+
+    try:
+        meta = json.loads(_env("SNAPSHOT_NOTIFY_META") or "{}")
+    except json.JSONDecodeError:
+        meta = {}
+
+    subject = f"[snapshot-V3] {subject_raw}"
+    html = build_html(subject_raw, body, hostname, status, meta)
+
+    msg = MIMEMultipart("alternative")
+    msg["From"] = sender
+    msg["To"] = to_addr
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+    msg.attach(MIMEText(html, "html", "utf-8"))
+
+    port = int(_env("SMTP_PORT", "587"))
+    try:
+        if port == 465:
+            smtp = smtplib.SMTP_SSL(host, port, timeout=20)
+        else:
+            smtp = smtplib.SMTP(host, port, timeout=20)
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.ehlo()
+        try:
+            smtp.login(user, password)
+            smtp.sendmail(sender, [to_addr], msg.as_string())
+        finally:
+            smtp.quit()
+    except Exception as e:
+        print(f"SMTP error: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
