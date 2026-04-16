@@ -70,6 +70,18 @@ El instalador:
 6. Publica `snapctl` en `/usr/local/bin/`.
 7. Verifica `GET /api/health`.
 
+### Desinstalación
+
+```bash
+sudo bash uninstall.sh              # quita código + servicios, CONSERVA los datos
+sudo bash uninstall.sh --purge      # también borra /var/lib y /var/log (IRREVERSIBLE)
+sudo bash uninstall.sh --dry-run    # simula sin ejecutar nada
+```
+
+El desinstalador **no toca paquetes apt** (restic, rclone, python3-venv…)
+porque pueden estar siendo usados por otros servicios del host. Los snapshots
+ya subidos a Google Drive también quedan intactos.
+
 ### Credenciales locales (OAuth de Google Drive)
 
 El repo **no contiene** las credenciales reales del OAuth Client. Tras
