@@ -1,0 +1,17 @@
+[Unit]
+Description=snapshot-V3 — timer para '%i'
+
+[Timer]
+# OnCalendar override por instancia vía drop-in:
+#   /etc/systemd/system/snapshot@create.timer.d/override.conf
+#   /etc/systemd/system/snapshot@sync.timer.d/override.conf
+#   /etc/systemd/system/snapshot@prune.timer.d/override.conf
+#
+# Por defecto: diario con randomización de 30 min.
+OnCalendar=daily
+RandomizedDelaySec=30min
+Persistent=true
+Unit=snapshot@%i.service
+
+[Install]
+WantedBy=timers.target

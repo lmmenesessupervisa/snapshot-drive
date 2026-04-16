@@ -1,0 +1,16 @@
+/proc
+/sys
+/dev
+/run
+/tmp
+/var/tmp
+/var/cache
+/var/lib/snapshot-v3/repo
+*.swp
+*.tmp
+*.log.gz
+node_modules
+__pycache__
+.venv
+.cache
+.DS_Store

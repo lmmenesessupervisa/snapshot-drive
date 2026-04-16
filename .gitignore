@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# Environment / secrets
+.env
+.env.local
+*.key
+*.pem
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/*
+!logs/.gitkeep
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Claude local settings
+.claude/settings.local.json
+
+# Node (frontend tooling, por si acaso)
+node_modules/
+dist/
+build/

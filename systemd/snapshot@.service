@@ -1,0 +1,14 @@
+[Unit]
+Description=snapshot-V3 — tarea '%i' (create/sync/prune/check)
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=SNAPSHOT_ROOT=/opt/snapshot-V3
+ExecStart=/opt/snapshot-V3/core/bin/snapctl %i
+# Evita solaparse con otra instancia del mismo comando
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

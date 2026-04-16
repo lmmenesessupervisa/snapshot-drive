@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Logs{% endblock %}
+{% block header %}Logs{% endblock %}
+
+{% block content %}
+<div class="flex flex-wrap items-center justify-between mb-5 gap-3">
+  <div class="text-sm text-[var(--muted)]">Salida reciente de <code class="mono text-brand-400">snapctl</code> (JSON lines).</div>
+  <div class="flex items-center gap-2">
+    <select id="lines" class="input w-28">
+      <option>100</option><option selected>200</option><option>500</option><option>1000</option>
+    </select>
+    <button id="refresh" class="btn-secondary">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
+      Refrescar
+    </button>
+  </div>
+</div>
+
+<pre id="log-box" class="card p-5 text-xs leading-relaxed text-slate-300 overflow-auto max-h-[70vh] mono whitespace-pre-wrap"></pre>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/logs.js') }}"></script>
+{% endblock %}

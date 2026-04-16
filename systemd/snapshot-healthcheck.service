@@ -1,0 +1,11 @@
+[Unit]
+Description=snapshot-V3 healthcheck (repo + rclone + API)
+After=snapshot-backend.service
+
+[Service]
+Type=oneshot
+User=root
+Environment=SNAPSHOT_ROOT=/opt/snapshot-V3
+ExecStart=/bin/bash -c '\
+    /opt/snapshot-V3/core/bin/snapctl status --json >/var/log/snapshot-v3/health.json && \
+    curl -fsS http://127.0.0.1:5070/api/health >/dev/null'

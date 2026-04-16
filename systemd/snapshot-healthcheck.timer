@@ -1,0 +1,10 @@
+[Unit]
+Description=snapshot-V3 healthcheck cada 15 minutos
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Unit=snapshot-healthcheck.service
+
+[Install]
+WantedBy=timers.target

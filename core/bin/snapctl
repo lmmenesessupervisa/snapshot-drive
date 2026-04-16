@@ -1,0 +1,675 @@
+#!/usr/bin/env bash
+# ===========================================================
+# snapctl — CLI central de snapshot-V3
+# ===========================================================
+# Dual-repo: escribe por defecto a Drive; si Drive no está disponible,
+# cae a un repo local (buffer). Luego `snapctl reconcile` mueve lo
+# pendiente de local → Drive y libera el disco.
+# ===========================================================
+
+set -Eeuo pipefail
+
+SNAPSHOT_ROOT="${SNAPSHOT_ROOT:-/opt/snapshot-V3}"
+# shellcheck disable=SC1091
+source "${SNAPSHOT_ROOT}/core/lib/common.sh"
+# shellcheck disable=SC1091
+source "${SNAPSHOT_ROOT}/core/lib/drive.sh"
+
+trap 'log_error "snapctl interrumpido en línea $LINENO"; exit 1' ERR
+trap '_release_on_abort' INT TERM
+
+# ---------- Helpers repo dual ----------
+_drive_uri() { echo "rclone:${RCLONE_REMOTE}:${RCLONE_REMOTE_PATH}"; }
+
+# Ejecuta restic apuntando al repo local.
+_restic_local() {
+    RESTIC_REPOSITORY="$RESTIC_REPO" restic "$@"
+}
+
+# Ejecuta restic apuntando al repo en Drive (via rclone backend).
+_restic_drive() {
+    RESTIC_REPOSITORY="$(_drive_uri)" \
+    RCLONE_CONFIG="$RCLONE_CONFIG" \
+    restic "$@"
+}
+
+# ¿Drive alcanzable? (vinculación rclone + ping remoto con timeout corto)
+drive_reachable() {
+    [[ -f "$RCLONE_CONFIG" ]] || return 1
+    timeout 15 rclone --config "$RCLONE_CONFIG" lsd "${RCLONE_REMOTE}:" >/dev/null 2>&1
+}
+
+_local_has_repo()  { [[ -d "$RESTIC_REPO" ]] && _restic_local cat config >/dev/null 2>&1; }
+_drive_has_repo()  { _restic_drive cat config >/dev/null 2>&1; }
+
+# Libera locks stale sin usar --remove-all (que también mataría locks
+# activos de otra operación en curso). `restic unlock` por defecto solo
+# elimina locks de más de 30 min, que es justo lo que queremos antes de
+# un backup/reconcile para evitar depender del botón manual.
+_clear_stale_locks() {
+    local repo="$1"  # "local" | "drive"
+    local fn="_restic_${repo}"
+    "$fn" unlock >/dev/null 2>&1 || true
+}
+
+# Trap ejecutado si el proceso recibe SIGINT/SIGTERM mientras sube a Drive:
+# libera el lock que haya dejado restic para que el siguiente run no
+# necesite intervención manual.
+_drive_op_in_progress=0
+_release_on_abort() {
+    local rc=$?
+    if [[ "$_drive_op_in_progress" -eq 1 ]]; then
+        log_warn "Operación Drive interrumpida — intentando liberar lock"
+        _restic_drive unlock >/dev/null 2>&1 || true
+    fi
+    exit "$rc"
+}
+
+_local_init_if_needed() {
+    _local_has_repo && return 0
+    mkdir -p "$RESTIC_REPO"
+    log_info "Inicializando repo restic local en $RESTIC_REPO"
+    _restic_local init
+}
+
+_drive_init_if_needed() {
+    _drive_has_repo && return 0
+    log_info "Inicializando repo restic en Drive ($(_drive_uri))"
+    _restic_drive init
+}
+
+_count_json_snaps() {
+    python3 -c 'import json,sys
+try: print(len(json.load(sys.stdin)))
+except Exception: print(0)'
+}
+
+_pending_local_count() {
+    _local_has_repo || { echo 0; return; }
+    _restic_local snapshots --json 2>/dev/null | _count_json_snaps
+}
+
+usage() {
+    cat <<EOF
+snapctl — gestor de snapshots (restic + rclone, dual-repo)
+
+Uso: snapctl <comando> [opciones]
+
+Comandos principales:
+  init                       Inicializa repos restic (local y Drive si alcanzable)
+  create [--tag TAG]         Crea snapshot en Drive; si Drive cae → local buffer
+  estimate [--json]          Estima tamaño bruto + bytes a subir (dry-run incremental)
+  reconcile                  Sube snapshots pendientes local → Drive y libera disco
+  list [--json]              Lista snapshots de AMBOS repos con campo 'source'
+  show <id>                  Muestra detalle de un snapshot
+  restore <id> [--target D] [--include P]
+                             Restaura snapshot (auto-detecta repo de origen)
+  delete <id>                Elimina un snapshot (del repo donde viva)
+  prune                      Aplica políticas de retención
+  cleanup-local              Libera paquetes huérfanos del buffer local (restic prune)
+  check                      Verifica integridad del repo alcanzable
+  unlock                     Libera locks stale de ambos repos
+  status [--json]            Estado dual del sistema
+  logs [--lines N]           Muestra logs recientes
+
+Comandos de Drive:
+  drive-status                         Estado de la vinculación (JSON)
+  drive-link <token-file> [tdID]       Configura rclone con token OAuth
+  drive-unlink                         Elimina la vinculación
+  drive-shared-list                    Lista unidades compartidas
+  drive-target personal|shared <id>    Cambia destino
+
+  help                       Muestra esta ayuda
+EOF
+}
+
+# ---------- Sub-comandos ----------
+cmd_init() {
+    ensure_dirs
+    require_cmd restic
+    if [[ ! -f "$RESTIC_PASSWORD_FILE" ]]; then
+        log_info "Generando password aleatorio para restic"
+        umask 077
+        openssl rand -base64 48 > "$RESTIC_PASSWORD_FILE"
+    fi
+    _local_init_if_needed
+    if drive_reachable; then
+        _drive_init_if_needed
+    else
+        log_warn "Drive no alcanzable — repo remoto se inicializará en el primer create o reconcile con internet"
+    fi
+}
+
+cmd_create() {
+    require_cmd restic
+    [[ -f "$RESTIC_PASSWORD_FILE" ]] || die "Password file no existe. Ejecuta snapctl init"
+    local tag="auto"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --tag) tag="$2"; shift 2 ;;
+            *) die "Opción desconocida: $1" ;;
+        esac
+    done
+
+    log_info "Iniciando snapshot (tag=$tag, paths=$BACKUP_PATHS)"
+    for p in $BACKUP_PATHS; do
+        [[ -e "$p" ]] || log_warn "Ruta no existe, se omitirá: $p"
+    done
+
+    local start_ts; start_ts=$(date +%s)
+    local target="drive" rc=0
+
+    if drive_reachable; then
+        _drive_init_if_needed
+        _clear_stale_locks drive
+        log_info "Drive alcanzable — backup directo a Drive"
+        _drive_op_in_progress=1
+        # shellcheck disable=SC2086
+        if _restic_drive backup \
+            --tag "$tag" \
+            --host "$HOSTNAME" \
+            --exclude-file "$EXCLUDES_FILE" \
+            $BACKUP_PATHS; then
+            _drive_op_in_progress=0
+            local dur=$(( $(date +%s) - start_ts ))
+            log_info "Snapshot en Drive OK (${dur}s)"
+            notify "Backup OK en $HOSTNAME (Drive)" "Duración ${dur}s, tag=$tag"
+            return 0
+        fi
+        rc=$?
+        _drive_op_in_progress=0
+        # Si falló, asegurarnos de que no dejamos locks detrás
+        _restic_drive unlock >/dev/null 2>&1 || true
+        log_warn "Backup a Drive falló (rc=$rc) — cayendo a local como fallback"
+    else
+        log_warn "Drive no alcanzable — backup a local (quedará pendiente de reconciliar)"
+    fi
+
+    # Fallback local
+    target="local"
+    _local_init_if_needed
+    # shellcheck disable=SC2086
+    if _restic_local backup \
+        --tag "$tag" \
+        --host "$HOSTNAME" \
+        --exclude-file "$EXCLUDES_FILE" \
+        $BACKUP_PATHS; then
+        local dur=$(( $(date +%s) - start_ts ))
+        log_info "Snapshot en LOCAL ok (${dur}s) — pendiente de reconciliar"
+        notify "Backup OK en $HOSTNAME (LOCAL pendiente)" "Duración ${dur}s, tag=$tag"
+    else
+        rc=$?
+        log_error "Fallo en restic backup local (rc=$rc)"
+        notify "Backup FALLÓ en $HOSTNAME" "restic rc=$rc"
+        return "$rc"
+    fi
+}
+
+cmd_reconcile() {
+    require_cmd restic
+    local pending; pending="$(_pending_local_count)"
+    if [[ "${pending:-0}" -eq 0 ]]; then
+        log_info "Nada que reconciliar — local está vacío"
+        return 0
+    fi
+    drive_reachable || die "Drive no alcanzable. Intenta más tarde."
+    _drive_init_if_needed
+    _clear_stale_locks drive
+    _clear_stale_locks local
+
+    log_info "Reconciliando $pending snapshot(s) local → Drive"
+    _drive_op_in_progress=1
+    # restic copy usa el repo principal (local) y copia a repo2 (drive)
+    RESTIC_REPOSITORY="$RESTIC_REPO" \
+    RESTIC_REPOSITORY2="$(_drive_uri)" \
+    RESTIC_PASSWORD_FILE2="$RESTIC_PASSWORD_FILE" \
+    RCLONE_CONFIG="$RCLONE_CONFIG" \
+        restic copy
+    _drive_op_in_progress=0
+
+    # Forget de TODOS los snapshots locales tras copiarlos
+    local ids; ids="$(_restic_local snapshots --json 2>/dev/null | \
+        python3 -c 'import json,sys; print(" ".join(s["id"] for s in json.load(sys.stdin)))' 2>/dev/null || true)"
+    if [[ -n "$ids" ]]; then
+        # shellcheck disable=SC2086
+        _restic_local forget $ids --prune
+    fi
+    log_info "Reconciliación completada — repo local liberado"
+    notify "Reconcile OK en $HOSTNAME" "$pending snapshot(s) movidos a Drive"
+}
+
+cmd_list() {
+    local json=0
+    [[ "${1:-}" == "--json" ]] && json=1
+
+    local local_json="[]" drive_json="[]"
+    _local_has_repo && local_json="$(_restic_local snapshots --json 2>/dev/null || echo '[]')"
+    if drive_reachable && _drive_has_repo; then
+        drive_json="$(_restic_drive snapshots --json 2>/dev/null || echo '[]')"
+    fi
+
+    if [[ $json -eq 1 ]]; then
+        python3 - "$local_json" "$drive_json" <<'PY'
+import json, sys
+loc = json.loads(sys.argv[1] or "[]")
+drv = json.loads(sys.argv[2] or "[]")
+for s in loc: s["source"] = "local"
+for s in drv: s["source"] = "drive"
+out = loc + drv
+out.sort(key=lambda s: s.get("time",""), reverse=True)
+print(json.dumps(out))
+PY
+    else
+        echo "=== Drive ==="
+        [[ "$drive_json" != "[]" ]] && _restic_drive snapshots --compact || echo "(sin snapshots o no alcanzable)"
+        echo
+        echo "=== Local (pendientes) ==="
+        [[ "$local_json" != "[]" ]] && _restic_local snapshots --compact || echo "(sin snapshots)"
+    fi
+}
+
+# Busca un ID en local/drive. Imprime "local" o "drive" o nada.
+_snap_match_py='import json, sys
+want = sys.argv[1]
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    data = []
+print("found" if any(
+    s.get("id","").startswith(want) or s.get("short_id","") == want
+    for s in data
+) else "")'
+
+_find_snapshot_source() {
+    local id="$1"
+    if _local_has_repo; then
+        local out
+        out="$(_restic_local snapshots --json 2>/dev/null | python3 -c "$_snap_match_py" "$id" 2>/dev/null || true)"
+        if [[ "$out" == "found" ]]; then
+            echo "local"; return 0
+        fi
+    fi
+    if drive_reachable && _drive_has_repo; then
+        local out
+        out="$(_restic_drive snapshots --json 2>/dev/null | python3 -c "$_snap_match_py" "$id" 2>/dev/null || true)"
+        if [[ "$out" == "found" ]]; then
+            echo "drive"; return 0
+        fi
+    fi
+    echo ""
+}
+
+cmd_show() {
+    local id="${1:?ID requerido}"
+    local src; src="$(_find_snapshot_source "$id")"
+    [[ -n "$src" ]] || die "Snapshot $id no encontrado (ni local ni drive)"
+    case "$src" in
+        local) _restic_local snapshots --json "$id" ;;
+        drive) _restic_drive snapshots --json "$id" ;;
+    esac
+}
+
+cmd_restore() {
+    local id="" target="/var/lib/snapshot-v3/restore" include=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --target)  target="$2"; shift 2 ;;
+            --include) include="$2"; shift 2 ;;
+            *) [[ -z "$id" ]] && id="$1" && shift || die "Arg desconocido: $1" ;;
+        esac
+    done
+    [[ -n "$id" ]] || die "Debes indicar ID de snapshot"
+    mkdir -p "$target"
+    local src; src="$(_find_snapshot_source "$id")"
+    [[ -n "$src" ]] || die "Snapshot $id no encontrado"
+    log_info "Restaurando $id desde $src → $target (include='${include:-TODO}')"
+
+    local restic_fn="_restic_${src}"
+    if [[ -n "$include" ]]; then
+        "$restic_fn" restore "$id" --target "$target" --include "$include"
+    else
+        "$restic_fn" restore "$id" --target "$target"
+    fi
+    log_info "Restore completado desde $src"
+}
+
+cmd_delete() {
+    local id="${1:?ID requerido}"
+    local src; src="$(_find_snapshot_source "$id")"
+    [[ -n "$src" ]] || die "Snapshot $id no encontrado"
+    log_info "Eliminando $id de $src"
+    local restic_fn="_restic_${src}"
+
+    # 1) Intento directo (rápido, solo forget — sin --prune).
+    #    Separar forget de prune evita contención de lock con timers
+    #    (reconcile/check) y deja la recolección pesada para `snapctl prune`.
+    local out rc
+    out="$("$restic_fn" forget "$id" 2>&1)" && rc=0 || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        # 2) Si parece un lock stale, intentamos liberar y reintentar UNA vez.
+        if grep -qiE 'locked|unable to create lock' <<<"$out"; then
+            log_warn "Repo $src lockeado — intentando unlock y reintento"
+            "$restic_fn" unlock --remove-all >/dev/null 2>&1 || true
+            out="$("$restic_fn" forget "$id" 2>&1)" && rc=0 || rc=$?
+        fi
+    fi
+    if [[ $rc -ne 0 ]]; then
+        # Reproducimos el output original para que el backend lo capture.
+        printf '%s\n' "$out" >&2
+        die "restic forget falló (rc=$rc) — usa el botón 'Aplicar retención' para liberar espacio cuando termines, o 'Forzar desbloqueo' si persiste el lock"
+    fi
+    printf '%s\n' "$out"
+    log_info "Snapshot $id eliminado de $src (espacio se recupera con 'prune')"
+}
+
+cmd_prune() {
+    log_info "Aplicando retención (d=$KEEP_DAILY w=$KEEP_WEEKLY m=$KEEP_MONTHLY y=$KEEP_YEARLY)"
+    if drive_reachable && _drive_has_repo; then
+        log_info "Prune en Drive"
+        _restic_drive forget \
+            --keep-daily   "$KEEP_DAILY" \
+            --keep-weekly  "$KEEP_WEEKLY" \
+            --keep-monthly "$KEEP_MONTHLY" \
+            --keep-yearly  "$KEEP_YEARLY" \
+            --prune
+    else
+        log_warn "Drive no alcanzable — se omite prune de Drive"
+    fi
+    if _local_has_repo; then
+        log_info "Prune en local"
+        _restic_local forget \
+            --keep-daily   "$KEEP_DAILY" \
+            --keep-weekly  "$KEEP_WEEKLY" \
+            --keep-monthly "$KEEP_MONTHLY" \
+            --keep-yearly  "$KEEP_YEARLY" \
+            --prune
+    fi
+}
+
+cmd_cleanup_local() {
+    # Libera espacio del repo local ejecutando `restic prune` directamente,
+    # sin pasar por `forget`. Útil cuando el buffer local ocupa disco por
+    # paquetes huérfanos (p.ej. tras un `snapctl delete` — que por diseño
+    # no hace prune — o un `reconcile` cuyo prune final se interrumpió).
+    # Es seguro: nunca borra blobs referenciados por algún snapshot vivo.
+    require_cmd restic
+    if ! _local_has_repo; then
+        log_info "No hay repo local que limpiar"
+        return 0
+    fi
+    local before; before=$(du -sb "$RESTIC_REPO" 2>/dev/null | awk '{print $1}')
+    local snap_count; snap_count=$(_pending_local_count)
+    _clear_stale_locks local
+    log_info "Limpiando paquetes huérfanos del repo local (restic prune)"
+    _restic_local prune
+    local after; after=$(du -sb "$RESTIC_REPO" 2>/dev/null | awk '{print $1}')
+    local freed=$(( ${before:-0} - ${after:-0} ))
+    log_info "Buffer local: $(numfmt --to=iec "${before:-0}") → $(numfmt --to=iec "${after:-0}") (liberados $(numfmt --to=iec "${freed:-0}"))"
+    # Si quedaron snapshots vivos y el tamaño apenas bajó, el usuario
+    # probablemente esperaba vaciar el buffer — pero prune solo barre
+    # huérfanos. Avisamos con un mensaje accionable para que no se quede
+    # "pensando que no funcionó".
+    if [[ "${freed:-0}" -lt 1048576 && "${snap_count:-0}" -gt 0 ]]; then
+        log_warn "Buffer no se vació: quedan ${snap_count} snapshot(s) en local. Usa 'Reconciliar ahora' para subirlos a Drive (y liberar disco), o elimínalos desde Snapshots antes de limpiar."
+    fi
+}
+
+cmd_check() {
+    if drive_reachable && _drive_has_repo; then
+        log_info "Check en Drive"
+        _restic_drive check
+    else
+        log_warn "Drive no alcanzable — check se ejecutará solo en local"
+    fi
+    if _local_has_repo; then
+        log_info "Check en local"
+        _restic_local check
+    fi
+}
+
+cmd_unlock() {
+    log_info "Liberando locks en ambos repos"
+    _local_has_repo && _restic_local unlock --remove-all || true
+    if drive_reachable && _drive_has_repo; then
+        _restic_drive unlock --remove-all || true
+    fi
+}
+
+cmd_sync() {
+    # Retrocompat: el viejo flujo era rclone sync del repo local completo.
+    # Ahora Drive es un repo restic propio — sync directo corrompería la
+    # estructura. Redirigimos a reconcile que es la operación correcta.
+    log_warn "El comando 'sync' está deprecado. Ejecutando 'reconcile' en su lugar."
+    cmd_reconcile
+}
+
+cmd_status() {
+    local json=0 fast=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json) json=1; shift ;;
+            --fast) fast=1; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    local local_count=0 local_last="" local_size=0
+    local drive_count=-1 drive_last=""   # -1 = no consultado (fast)
+    local drive_ok="false" linked="false" target="none" team_drive=""
+
+    if [[ -f "$RCLONE_CONFIG" ]]; then
+        team_drive="$(_ini_read "$RCLONE_REMOTE" "team_drive" 2>/dev/null || true)"
+        if _ini_read "$RCLONE_REMOTE" "token" 2>/dev/null | grep -q "access_token"; then
+            linked="true"
+            [[ -n "$team_drive" ]] && target="shared" || target="personal"
+        fi
+    fi
+
+    if _local_has_repo; then
+        local s; s="$(_restic_local snapshots --json 2>/dev/null || echo '[]')"
+        local_count=$(printf '%s' "$s" | _count_json_snaps)
+        local_last=$(printf '%s' "$s" | python3 -c 'import json,sys
+d=json.load(sys.stdin); print(d[-1]["time"] if d else "")' 2>/dev/null || echo "")
+        local_size=$(du -sb "$RESTIC_REPO" 2>/dev/null | awk '{print $1}')
+    fi
+
+    # Drive:
+    #   fast=1: NO ping a Drive (reachable queda unknown/null) ni restic.
+    #           Auto-refresh del dashboard usa este modo — debe ser <2s.
+    #   fast=0: ping + restic snapshots count.
+    local drive_reachable_known=1
+    if [[ $fast -eq 1 ]]; then
+        drive_reachable_known=0
+        drive_ok="unknown"
+    elif drive_reachable; then
+        drive_ok="true"
+        if _drive_has_repo; then
+            local s; s="$(_restic_drive snapshots --json 2>/dev/null || echo '[]')"
+            drive_count=$(printf '%s' "$s" | _count_json_snaps)
+            drive_last=$(printf '%s' "$s" | python3 -c 'import json,sys
+d=json.load(sys.stdin); print(d[-1]["time"] if d else "")' 2>/dev/null || echo "")
+        fi
+    fi
+
+    local total_count=$(( local_count + (drive_count > 0 ? drive_count : 0) ))
+    local last_any="$drive_last"
+    [[ -z "$last_any" || ( -n "$local_last" && "$local_last" > "$last_any" ) ]] && last_any="$local_last"
+
+    if [[ $json -eq 1 ]]; then
+        python3 - <<PY
+import json
+drive_count = int("${drive_count}")
+drive_ok = "${drive_ok}"
+drive_reachable = None if drive_ok == "unknown" else (drive_ok == "true")
+print(json.dumps({
+  "host": "${HOSTNAME}",
+  "repo_ok": True,
+  "drive_linked": "${linked}" == "true",
+  "drive_reachable": drive_reachable,
+  "drive_target": "${target:-none}",
+  "drive_team_drive": "${team_drive:-}",
+  "fast": ${fast} == 1,
+  "local": {
+    "snapshot_count": int("${local_count}" or 0),
+    "last_snapshot":  "${local_last}",
+    "size_bytes":     int("${local_size}" or 0),
+  },
+  "drive": {
+    "snapshot_count": drive_count if drive_count >= 0 else None,
+    "last_snapshot":  "${drive_last}" or None,
+    "unknown": drive_count < 0,
+  },
+  "pending_reconcile": int("${local_count}" or 0),
+  "snapshot_count":    int("${total_count}" or 0),
+  "last_snapshot":     "${last_any}",
+  "rclone_remote_ok":  drive_reachable,
+  "repo_size_bytes":   int("${local_size}" or 0)
+}, indent=2))
+PY
+    else
+        cat <<EOF
+Host:                $HOSTNAME
+Drive vinculado:     $linked
+Drive alcanzable:    $drive_ok (${RCLONE_REMOTE}:${RCLONE_REMOTE_PATH})
+Snapshots en Drive:  $drive_count   (último: ${drive_last:-ninguno})
+Snapshots en local:  $local_count   (pendientes reconcile)
+Último snapshot:     ${last_any:-ninguno}
+Tamaño local:        $(numfmt --to=iec "${local_size:-0}" 2>/dev/null || echo "$local_size B")
+EOF
+    fi
+}
+
+cmd_estimate() {
+    # Estima cuánto ocupará el próximo snapshot.
+    #
+    # 1) Tamaño bruto de las rutas (du -sb respetando excludes) — rápido.
+    # 2) Si hay repo restic accesible, ejecuta `backup --dry-run --json`
+    #    para obtener una estimación incremental precisa: bytes y archivos
+    #    nuevos/modificados vs el último snapshot.
+    require_cmd restic
+    [[ -f "$RESTIC_PASSWORD_FILE" ]] || die "Password file no existe. Ejecuta snapctl init"
+    local json=0
+    [[ "${1:-}" == "--json" ]] && json=1
+    local raw_bytes=0 path_count=0
+    for p in $BACKUP_PATHS; do
+        [[ -e "$p" ]] || continue
+        path_count=$(( path_count + 1 ))
+        # du respeta --exclude-from (sintaxis shell-glob, compatible 1:1
+        # con la mayoría de patrones de excludes.list de restic).
+        local size
+        size=$(du -sb --exclude-from="$EXCLUDES_FILE" "$p" 2>/dev/null | awk '{print $1}')
+        raw_bytes=$(( raw_bytes + ${size:-0} ))
+    done
+
+    # dry-run: qué añadiría el próximo snapshot al repo (incremental).
+    # El repo ideal para la estimación es el de Drive, porque es contra el
+    # que estamos midiendo "lo que habría que subir". Si Drive no está
+    # disponible, usamos local como aproximación. Si no hay ningún repo,
+    # reportamos solo el tamaño bruto.
+    local added_bytes=-1 added_files=-1 total_files=-1 repo_used=""
+    local dry_output=""
+    local dry_rc=0
+    _dry_run_against() {
+        local which="$1"   # local | drive
+        local fn="_restic_${which}"
+        # shellcheck disable=SC2086
+        "$fn" backup \
+            --dry-run --json \
+            --tag "estimate" \
+            --host "$HOSTNAME" \
+            --exclude-file "$EXCLUDES_FILE" \
+            $BACKUP_PATHS 2>/dev/null | tail -n 1
+    }
+    if drive_reachable && _drive_has_repo; then
+        repo_used="drive"
+        dry_output="$(_dry_run_against drive)" || dry_rc=$?
+    elif _local_has_repo; then
+        repo_used="local"
+        dry_output="$(_dry_run_against local)" || dry_rc=$?
+    fi
+
+    if [[ -n "$dry_output" ]]; then
+        # La última línea JSON es el "summary" de restic; la parseamos.
+        local parsed
+        parsed=$(printf '%s' "$dry_output" | python3 -c '
+import json, sys
+try:
+    d = json.loads(sys.stdin.read())
+    print(d.get("data_added", -1),
+          d.get("files_new", 0) + d.get("files_changed", 0),
+          d.get("total_files_processed", -1))
+except Exception:
+    print(-1, -1, -1)
+' 2>/dev/null || echo "-1 -1 -1")
+        read -r added_bytes added_files total_files <<<"$parsed"
+    fi
+
+    if [[ $json -eq 1 ]]; then
+        python3 - "$raw_bytes" "$added_bytes" "$added_files" "$total_files" \
+                  "$repo_used" "$path_count" "$BACKUP_PATHS" <<'PY'
+import json, sys
+raw, added, added_files, total_files, repo, count, paths = sys.argv[1:8]
+raw = int(raw or 0); added = int(added or -1)
+added_files = int(added_files or -1); total_files = int(total_files or -1)
+print(json.dumps({
+  "paths": paths.split(),
+  "paths_found": int(count or 0),
+  "raw_bytes": raw,
+  "estimated_upload_bytes": added if added >= 0 else None,
+  "estimated_changed_files": added_files if added_files >= 0 else None,
+  "total_files_processed": total_files if total_files >= 0 else None,
+  "repo_queried": repo or None,
+  "is_first_snapshot": not repo,
+}, indent=2))
+PY
+    else
+        echo "Estimación de snapshot"
+        echo "----------------------"
+        echo "Rutas:              $BACKUP_PATHS"
+        echo "Tamaño bruto:       $(numfmt --to=iec "${raw_bytes:-0}" 2>/dev/null || echo "$raw_bytes B")"
+        if [[ "$added_bytes" -ge 0 ]]; then
+            echo "Subida estimada:    $(numfmt --to=iec "${added_bytes}" 2>/dev/null || echo "$added_bytes B")  (incremental vs repo $repo_used)"
+            echo "Archivos nuevos:    ${added_files}"
+            echo "Archivos totales:   ${total_files}"
+        else
+            echo "Subida estimada:    (primer snapshot — subirá ~tamaño bruto comprimido)"
+        fi
+    fi
+}
+
+cmd_logs() {
+    local n=100
+    [[ "${1:-}" == "--lines" ]] && n="$2"
+    tail -n "$n" "${LOG_FILE}" 2>/dev/null || true
+}
+
+# ---------- Dispatcher ----------
+main() {
+    local cmd="${1:-help}"; shift || true
+    case "$cmd" in
+        init)      cmd_init      "$@" ;;
+        create)    cmd_create    "$@" ;;
+        estimate)  cmd_estimate  "$@" ;;
+        reconcile) cmd_reconcile "$@" ;;
+        list)      cmd_list      "$@" ;;
+        show)      cmd_show      "$@" ;;
+        restore)   cmd_restore   "$@" ;;
+        delete)    cmd_delete    "$@" ;;
+        prune)     cmd_prune     "$@" ;;
+        cleanup-local) cmd_cleanup_local "$@" ;;
+        check)     cmd_check     "$@" ;;
+        unlock)    cmd_unlock    "$@" ;;
+        sync)      cmd_sync      "$@" ;;
+        status)    cmd_status    "$@" ;;
+        logs)      cmd_logs      "$@" ;;
+        drive-status)      drive_status ;;
+        drive-link)        drive_link "$@" ;;
+        drive-unlink)      drive_unlink ;;
+        drive-shared-list) drive_shared_list ;;
+        drive-target)      drive_set_target "$@" ;;
+        help|-h|--help)    usage ;;
+        *) usage; exit 1 ;;
+    esac
+}
+
+main "$@"

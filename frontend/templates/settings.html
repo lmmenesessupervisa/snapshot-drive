@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% block title %}Ajustes{% endblock %}
+{% block header %}Ajustes · Google Drive{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl space-y-6">
+
+  <!-- Estado -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+      <h2 class="font-semibold">Estado de la vinculación</h2>
+      <button id="refresh-status" class="text-xs text-brand-500 hover:underline">refrescar</button>
+    </div>
+    <div class="p-5 text-sm" id="drive-status">Cargando…</div>
+  </div>
+
+  <!-- Vincular -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-[var(--border)]">
+      <h2 class="font-semibold">Paso 1 · Vincular cuenta de Google</h2>
+    </div>
+    <div class="p-5 space-y-4 text-sm">
+      <p class="text-slate-400">
+        Conecta tu cuenta de Google Drive directamente desde aquí. No necesitas instalar
+        nada en tu equipo: se te mostrará un código que ingresarás en
+        <code class="text-slate-300">google.com/device</code> desde cualquier navegador
+        (móvil, laptop, la misma pantalla…).
+      </p>
+
+      <div class="flex items-center gap-3">
+        <button id="btn-connect" class="btn-primary">Conectar con Google</button>
+        <button id="btn-unlink"  class="btn-danger">Desvincular</button>
+      </div>
+
+      <details class="bg-slate-950 rounded-md p-3 border border-slate-800">
+        <summary class="cursor-pointer text-slate-400 text-xs">Método avanzado · pegar token JSON de rclone</summary>
+        <div class="mt-3 space-y-2">
+          <p class="text-slate-400 text-xs">
+            Solo para administradores que ya tienen un token generado con
+            <code>rclone authorize "drive"</code>.
+          </p>
+          <textarea id="token" rows="3" class="input font-mono text-xs"
+            placeholder='{"access_token":"ya29...","refresh_token":"1//0...","expiry":"..."}'></textarea>
+          <button id="btn-link" class="btn-primary text-xs">Vincular con token pegado</button>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- Modal Device Flow -->
+  <div id="oauth-modal" class="fixed inset-0 z-50 hidden items-center justify-center modal-backdrop p-4">
+    <div class="modal-panel w-full max-w-md p-6 space-y-4">
+      <div class="flex items-start justify-between">
+        <h3 class="font-semibold text-lg">Autoriza con Google</h3>
+        <button id="oauth-close" class="text-slate-500 hover:text-slate-200">✕</button>
+      </div>
+
+      <ol class="text-sm text-slate-300 space-y-2 list-decimal list-inside">
+        <li>Abre en cualquier navegador: <a id="oauth-url" href="#" target="_blank" rel="noopener"
+            class="text-brand-500 underline">google.com/device</a></li>
+        <li>Introduce este código:
+          <div class="mt-2 bg-black/60 border border-slate-800 rounded px-3 py-2 flex items-center justify-between">
+            <code id="oauth-code" class="font-mono text-xl tracking-widest text-emerald-400">—</code>
+            <button id="oauth-copy" class="text-xs text-brand-500 hover:underline">copiar</button>
+          </div>
+        </li>
+        <li>Autoriza con tu cuenta de Google. Esta ventana se cerrará sola al terminar.</li>
+      </ol>
+
+      <div id="oauth-hint" class="text-xs text-slate-500">Esperando autorización…</div>
+    </div>
+  </div>
+
+  <!-- Target -->
+  <div class="card" id="target-card">
+    <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+      <h2 class="font-semibold">Paso 2 · Dónde guardar los snapshots</h2>
+      <button id="btn-refresh-shared" class="text-xs text-brand-500 hover:underline">refrescar unidades</button>
+    </div>
+    <div class="p-5 space-y-4 text-sm">
+      <div class="space-y-2">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="target" value="personal" checked>
+          <span><b>Mi unidad personal</b> (Google Drive personal del usuario vinculado)</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="target" value="shared">
+          <span><b>Unidad compartida</b> (Shared Drive de Workspace)</span>
+        </label>
+      </div>
+
+      <div id="shared-wrap" class="hidden">
+        <label class="block text-slate-400 mb-1">Selecciona la unidad compartida</label>
+        <select id="shared-select" class="input">
+          <option value="">— cargando —</option>
+        </select>
+      </div>
+
+      <button id="btn-apply-target" class="btn-primary">Aplicar destino</button>
+    </div>
+  </div>
+
+  <div class="text-xs text-slate-500">
+    La ruta final dentro del remote es <code class="text-slate-300">snapshots/&lt;hostname&gt;/</code>.
+    Se puede ajustar en <code class="text-slate-300">/opt/snapshot-V3/core/etc/snapshot.conf</code>.
+  </div>
+
+  <!-- Rutas a respaldar + carpeta de Drive -->
+  <div class="card" id="config-card">
+    <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+      <h2 class="font-semibold tracking-tight flex items-center gap-2">
+        <svg class="w-4 h-4 text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h4l2-2h6l2 2h4v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v6M9 14h6"/></svg>
+        Rutas y destino
+      </h2>
+      <button id="refresh-config" class="text-xs text-brand-400 hover:text-brand-500">refrescar</button>
+    </div>
+    <div class="p-5 space-y-5 text-sm">
+      <div>
+        <label class="block text-[11px] uppercase tracking-wider text-[var(--muted)] mb-1">
+          Rutas a respaldar
+        </label>
+        <textarea id="cfg-paths" rows="5" class="input mono"
+          placeholder="/etc&#10;/home&#10;/var/www&#10;/root"></textarea>
+        <p class="mt-1.5 text-[11px] text-[var(--muted-2)]">
+          Una ruta absoluta por línea (o separadas por espacios). Sin espacios dentro de cada ruta,
+          sin <code class="mono">..</code>. Estos directorios son los que se enviarán a restic en cada
+          <code class="mono">snapctl create</code>.
+        </p>
+      </div>
+
+      <div>
+        <label class="block text-[11px] uppercase tracking-wider text-[var(--muted)] mb-1">
+          Carpeta dentro de Drive
+        </label>
+        <input id="cfg-remote-path" class="input mono" placeholder="snapshots/zfsantander">
+        <p class="mt-1.5 text-[11px] text-[var(--muted-2)]">
+          Valor efectivo actual: <code class="mono" id="cfg-remote-effective">—</code>
+          <span id="cfg-hostname-hint"></span>
+        </p>
+        <div class="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-[11px]">
+          <b>Importante:</b> si cambias esta carpeta, restic creará un repositorio nuevo en la
+          nueva ubicación. Los snapshots ya subidos seguirán en la carpeta anterior dentro de tu
+          Drive (podrás volver a verlos aquí restaurando el valor previo). Cámbialo solo en
+          instalación inicial, o si sabes lo que haces.
+        </div>
+      </div>
+
+      <div class="flex justify-end">
+        <button id="btn-save-config" class="btn-primary">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Programación de timers systemd -->
+  <div class="card" id="schedule-card">
+    <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+      <h2 class="font-semibold tracking-tight flex items-center gap-2">
+        <svg class="w-4 h-4 text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        Programación automática
+      </h2>
+      <button id="refresh-schedule" class="text-xs text-brand-400 hover:text-brand-500">refrescar</button>
+    </div>
+    <div class="p-5 space-y-6 text-sm">
+      <p class="text-[var(--muted)] text-xs">
+        Los timers usan <code class="mono text-brand-400">systemd</code>. Define cuándo se crean snapshots
+        automáticos (<b>create</b>) y cuándo se aplica la política de retención (<b>prune</b>).
+      </p>
+      <div id="schedule-units" class="space-y-6">
+        <div class="text-[var(--muted)] text-xs">Cargando…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Retención -->
+  <div class="card" id="retention-card">
+    <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+      <h2 class="font-semibold tracking-tight flex items-center gap-2">
+        <svg class="w-4 h-4 text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+        Política de retención
+      </h2>
+      <button id="refresh-retention" class="text-xs text-brand-400 hover:text-brand-500">refrescar</button>
+    </div>
+    <div class="p-5 space-y-4 text-sm">
+      <p class="text-[var(--muted)] text-xs">
+        Cuando se ejecuta <code class="mono">snapctl prune</code> (manual o por timer), se conservan
+        los <b>N</b> snapshots más recientes de cada categoría. El resto se borra y se libera espacio.
+        <span class="text-rose-400">Operación irreversible.</span>
+      </p>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <label class="block">
+          <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Diarios</span>
+          <input id="ret-daily" type="number" min="0" max="9999" class="input mt-1 mono">
+        </label>
+        <label class="block">
+          <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Semanales</span>
+          <input id="ret-weekly" type="number" min="0" max="9999" class="input mt-1 mono">
+        </label>
+        <label class="block">
+          <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Mensuales</span>
+          <input id="ret-monthly" type="number" min="0" max="9999" class="input mt-1 mono">
+        </label>
+        <label class="block">
+          <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Anuales</span>
+          <input id="ret-yearly" type="number" min="0" max="9999" class="input mt-1 mono">
+        </label>
+      </div>
+      <div class="flex items-center justify-between">
+        <p class="text-[11px] text-[var(--muted-2)]">Ejemplo: 7/4/6/2 = última semana + 4 semanas + 6 meses + 2 años.</p>
+        <button id="btn-save-retention" class="btn-primary">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+{% endblock %}

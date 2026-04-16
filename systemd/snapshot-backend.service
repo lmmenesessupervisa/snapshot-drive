@@ -1,0 +1,36 @@
+[Unit]
+Description=snapshot-V3 backend (Flask API + UI)
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=SNAPSHOT_ROOT=/opt/snapshot-V3
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/opt/snapshot-V3
+ExecStart=/opt/snapshot-V3/.venv/bin/gunicorn \
+    --workers 1 \
+    --threads 6 \
+    --worker-class gthread \
+    --bind 0.0.0.0:5070 \
+    --timeout 7200 \
+    --graceful-timeout 30 \
+    --access-logfile /var/log/snapshot-v3/access.log \
+    --error-logfile  /var/log/snapshot-v3/error.log \
+    backend.app:app
+Restart=on-failure
+RestartSec=5
+# Hardening mínimo
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=false
+# /etc/systemd/system es read-only por ProtectSystem=full. Se desbloquea
+# para que la UI de Ajustes pueda crear/editar drop-ins de timers
+# (snapshot@create.timer.d/override.conf, etc.). Sin esto, cualquier
+# POST a /api/schedule/<unit> falla con "Read-only file system".
+ReadWritePaths=/var/lib/snapshot-v3 /var/log/snapshot-v3 /etc/systemd/system
+
+[Install]
+WantedBy=multi-user.target
