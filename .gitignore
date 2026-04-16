@@ -41,3 +41,8 @@ Thumbs.db
 node_modules/
 dist/
 build/
+
+# Binarios standalone descargados por install.sh a $INSTALL_ROOT/bundle/.
+# No hay ninguno dentro del clon del repo — el exclude está aquí por si
+# alguien los cachea localmente durante desarrollo.
+bundle/

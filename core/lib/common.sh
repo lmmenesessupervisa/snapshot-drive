@@ -8,6 +8,15 @@ set -Eeuo pipefail
 SNAPSHOT_ROOT="${SNAPSHOT_ROOT:-/opt/snapshot-V3}"
 CONF_FILE="${CONF_FILE:-${SNAPSHOT_ROOT}/core/etc/snapshot.conf}"
 
+# Binarios bundled (standalone Python + restic + rclone) descargados por
+# install.sh a $SNAPSHOT_ROOT/bundle/. Los anteponemos al PATH para que
+# snapctl use EXCLUSIVAMENTE estos y no dependa del restic/rclone/python
+# del host (evita sorpresas por upgrades de apt o versiones divergentes).
+if [[ -d "${SNAPSHOT_ROOT}/bundle/bin" ]]; then
+    PATH="${SNAPSHOT_ROOT}/bundle/bin:${SNAPSHOT_ROOT}/bundle/python/bin:$PATH"
+    export PATH
+fi
+
 # shellcheck disable=SC1090
 [[ -f "$CONF_FILE" ]] && source "$CONF_FILE"
 

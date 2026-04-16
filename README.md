@@ -54,24 +54,42 @@ snapshot-V3/
 └── README.md
 ```
 
-## Instalación (Ubuntu Server)
+## Instalación (Linux x86_64 / aarch64)
 
 ```bash
-sudo bash install.sh              # interactivo: apt pide confirmación antes de instalar
-sudo bash install.sh -y           # responde sí a todo
-sudo bash install.sh --skip-deps  # NO toca apt; úsalo si ya tienes las deps o si
-                                  # el sistema tiene paquetes third-party rotos.
+sudo bash install.sh       # instalación estándar
+sudo bash install.sh -y    # pip silencioso (no-interactivo)
 ```
+
+**El instalador NO toca apt ni el Python del sistema.** Descarga de sus
+releases oficiales y deja aislado en `/opt/snapshot-V3/bundle/`:
+
+- **Python standalone** (`python-build-standalone` de astral-sh)
+- **restic** (release estático de `restic/restic`)
+- **rclone** (release estático de `rclone.org`)
+
+Dependencias del sistema mínimas: `curl`, `tar`, `python3` (de cualquier
+versión, solo se usa como runner de un par de extractores `bz2`/`zip`),
+`rsync`. Todas son core utils presentes por defecto en Ubuntu Server.
 
 El instalador:
 
-1. Chequea si faltan `restic`, `rclone`, `python3-venv`. Si no falta nada, **salta apt entero**. Si falta algo, usa `apt-get install --no-upgrade` (no actualiza paquetes ya presentes) y tolera fallos de apt por paquetes ajenos rotos siempre que nuestras deps queden OK.
-2. Copia el proyecto a `/opt/snapshot-V3/` (con `rsync --delete`; `/etc/snapshot-v3/` queda a salvo fuera de esa ruta).
-3. Crea venv en `.venv/` y resuelve dependencias Python.
-4. Inicializa el repositorio restic local.
-5. Instala/activa servicios y timers systemd.
-6. Publica `snapctl` en `/usr/local/bin/`.
-7. Verifica `GET /api/health`.
+1. Verifica el tooling mínimo del sistema. Si falta algo, aborta con un
+   mensaje claro (típicamente: no falta nada).
+2. Crea dirs en `/opt/snapshot-V3`, `/var/lib/snapshot-v3`, `/var/log/snapshot-v3`.
+3. Despliega el código con `rsync --delete` (respeta `bundle/`, `.venv/`, `logs/`).
+   Crea `/etc/snapshot-v3/snapshot.local.conf` (override local con secrets)
+   desde la plantilla si no existe — protegido con permisos `600`.
+4. Descarga Python/restic/rclone a `$INSTALL_ROOT/bundle/`. Versiones
+   pinneadas en cabecera de `install.sh`; override con env vars:
+   `PYTHON_VERSION`, `PYTHON_PBS_DATE`, `RESTIC_VERSION`, `RCLONE_VERSION`.
+5. Crea el venv contra el Python bundled y resuelve `backend/requirements.txt`.
+6. `snapctl init` — genera password restic aleatorio e inicializa el repo.
+7. Instala y activa unidades systemd.
+8. Valida `GET /api/health`.
+
+`core/lib/common.sh` antepone `$SNAPSHOT_ROOT/bundle/bin` al `PATH` así
+que `snapctl` siempre usa los binarios aislados, nunca los del host.
 
 ### Desinstalación
 
