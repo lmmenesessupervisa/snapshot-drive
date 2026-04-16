@@ -70,6 +70,22 @@ El instalador:
 6. Publica `snapctl` en `/usr/local/bin/`.
 7. Verifica `GET /api/health`.
 
+### Credenciales locales (OAuth de Google Drive)
+
+El repo **no contiene** las credenciales reales del OAuth Client. Tras
+`install.sh`, edita el override local con los valores de tu Google Cloud Console:
+
+```bash
+sudo nano /opt/snapshot-V3/core/etc/snapshot.local.conf
+# Rellena GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET
+sudo systemctl restart snapshot-backend
+```
+
+`snapshot.local.conf` está en `.gitignore`, se crea con permisos `600` y
+sobreescribe los valores de `snapshot.conf` al cargarse desde `common.sh`.
+En upgrades (re-ejecutar `install.sh`) el instalador respeta el archivo
+existente y no lo pisa.
+
 ## Configuración de Google Drive (rclone)
 
 ```bash

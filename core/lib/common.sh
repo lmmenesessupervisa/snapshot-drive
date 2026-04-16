@@ -11,6 +11,12 @@ CONF_FILE="${CONF_FILE:-${SNAPSHOT_ROOT}/core/etc/snapshot.conf}"
 # shellcheck disable=SC1090
 [[ -f "$CONF_FILE" ]] && source "$CONF_FILE"
 
+# Override local por instalación (credenciales OAuth, tuning por sitio).
+# NO se trackea en git — se crea desde snapshot.local.conf.example en install.
+LOCAL_CONF="${LOCAL_CONF:-${SNAPSHOT_ROOT}/core/etc/snapshot.local.conf}"
+# shellcheck disable=SC1090
+[[ -f "$LOCAL_CONF" ]] && source "$LOCAL_CONF"
+
 export RESTIC_REPOSITORY="${RESTIC_REPO}"
 export RESTIC_PASSWORD_FILE="${RESTIC_PASSWORD_FILE}"
 

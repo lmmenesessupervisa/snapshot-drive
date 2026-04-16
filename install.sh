@@ -41,6 +41,17 @@ rsync -a --delete \
 chmod +x "$INSTALL_ROOT/core/bin/snapctl" "$INSTALL_ROOT/core/lib/common.sh"
 ln -sf "$INSTALL_ROOT/core/bin/snapctl" /usr/local/bin/snapctl
 
+# Override local con credenciales (OAuth, notificaciones, etc).
+# Si ya existe, no lo tocamos — respeta valores del cliente en upgrades.
+LOCAL_CONF="$INSTALL_ROOT/core/etc/snapshot.local.conf"
+if [[ ! -f "$LOCAL_CONF" ]]; then
+    install -m 0600 "$INSTALL_ROOT/core/etc/snapshot.local.conf.example" "$LOCAL_CONF"
+    info "Creado $LOCAL_CONF (edítalo para poner GOOGLE_CLIENT_ID/SECRET)"
+else
+    chmod 600 "$LOCAL_CONF" || true
+    info "Override local ya existente, respetado: $LOCAL_CONF"
+fi
+
 bold "[4/7] Virtualenv Python y dependencias backend"
 python3 -m venv "$INSTALL_ROOT/.venv"
 "$INSTALL_ROOT/.venv/bin/pip" install --upgrade pip wheel
