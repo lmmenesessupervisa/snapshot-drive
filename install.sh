@@ -65,7 +65,11 @@ check_missing() {
     for b in "${REQUIRED_BINS[@]}"; do
         command -v "$b" >/dev/null 2>&1 || _out+=("$b")
     done
-    python3 -c 'import venv' 2>/dev/null || _out+=("python3-venv")
+    # En Debian/Ubuntu 'venv' es stdlib pero 'ensurepip' vive en el paquete
+    # python3.X-venv — sin él, 'python3 -m venv' muere con
+    # "ensurepip is not available". Probamos ensurepip, que es lo que de
+    # verdad necesita [4/7] para crear el venv con pip.
+    python3 -c 'import ensurepip' 2>/dev/null || _out+=("python3-venv")
 }
 
 MISSING=()
@@ -135,7 +139,10 @@ else
 fi
 
 bold "[4/7] Virtualenv Python y dependencias backend"
-python3 -m venv "$INSTALL_ROOT/.venv"
+# --clear: si hay un .venv parcial de un intento previo que falló, se limpia
+# y se recrea. Idempotente en installs sanos (re-crea un venv nuevo y pip
+# install reinstala las deps; tarda ~30s).
+python3 -m venv --clear "$INSTALL_ROOT/.venv"
 "$INSTALL_ROOT/.venv/bin/pip" install --upgrade pip wheel
 "$INSTALL_ROOT/.venv/bin/pip" install -r "$INSTALL_ROOT/backend/requirements.txt"
 
