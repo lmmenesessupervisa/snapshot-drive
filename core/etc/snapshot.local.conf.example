@@ -45,6 +45,18 @@ AUDIT_PASSWORD=""
 # (si cada cliente sube a 'snapshots/<hostname>/', déjalo en 'snapshots').
 AUDIT_REMOTE_PATH="snapshots"
 
+# --- Tuning rclone (opcional) -----------------------------------------------
+# Perfil automático según el tipo de Drive detectado en rclone.conf:
+#   auto (default) — "shared" si rclone.conf tiene team_drive, "personal" si no
+#   personal       — conservador (~10 qps), seguro para Drive personal
+#   shared         — agresivo (~100 qps), solo en Shared Drives
+#
+# Con auto-detección normalmente no hace falta tocar nada. Overrides manuales
+# (si necesitas tunear todavía más o menos):
+# RCLONE_PROFILE="auto"
+# RCLONE_TPSLIMIT="30"
+# RCLONE_TRANSFERS="8"
+
 # (Opcional) Webhook para POST JSON en cada operación:
 # NOTIFY_WEBHOOK="https://hooks.example.com/xyz"
 # RCLONE_BWLIMIT="8M"

@@ -35,18 +35,48 @@ export RESTIC_PASSWORD_FILE="${RESTIC_PASSWORD_FILE}"
 # rclone lee automáticamente variables RCLONE_<FLAG> mayúsculas, así que
 # exportarlas aquí basta para que restic → rclone use estos valores sin
 # tocar más la línea de comandos.
+#
+# PERFIL (RCLONE_PROFILE): auto | personal | shared
+#   auto (default)  → detecta team_drive en rclone.conf; shared si existe.
+#   personal        → conservador, evita 403 userRateLimitExceeded en Drive personal.
+#   shared          → agresivo; los Shared Drives aguantan mucho más throughput.
+# El usuario puede seguir overrideando variable a variable en snapshot.local.conf
+# (p.ej. fijar RCLONE_TPSLIMIT=12 manualmente) — los defaults del perfil solo
+# rellenan lo que esté sin definir.
+_snapshot_rclone_profile="${RCLONE_PROFILE:-auto}"
+if [[ "$_snapshot_rclone_profile" == "auto" ]]; then
+    if [[ -f "${RCLONE_CONFIG:-}" ]] && \
+       grep -qE '^[[:space:]]*team_drive[[:space:]]*=[[:space:]]*\S' "${RCLONE_CONFIG}" 2>/dev/null; then
+        _snapshot_rclone_profile="shared"
+    else
+        _snapshot_rclone_profile="personal"
+    fi
+fi
+if [[ "$_snapshot_rclone_profile" == "shared" ]]; then
+    # Shared Drive: Google permite ~100 qps sostenidas. Paralelización alta
+    # reduce el overhead de latencia (cada API call ~200-400ms en Drive).
+    _def_transfers=6; _def_checkers=12; _def_tps=20; _def_burst=40; _def_pacer="10ms"
+else
+    # Drive personal: ~10 qps antes de 403. Pacer de 100ms previene backoff
+    # exponencial de Google (puede dejar un upload "colgado" horas).
+    _def_transfers=2; _def_checkers=4;  _def_tps=5;  _def_burst=10; _def_pacer="100ms"
+fi
+
 export RCLONE_DRIVE_CHUNK_SIZE="${RCLONE_DRIVE_CHUNK_SIZE:-64M}"
-export RCLONE_DRIVE_PACER_MIN_SLEEP="${RCLONE_PACER_MIN_SLEEP:-100ms}"
+export RCLONE_DRIVE_PACER_MIN_SLEEP="${RCLONE_PACER_MIN_SLEEP:-$_def_pacer}"
 export RCLONE_DRIVE_USE_TRASH="${RCLONE_DRIVE_USE_TRASH:-false}"
-export RCLONE_TRANSFERS="${RCLONE_TRANSFERS:-2}"
-export RCLONE_CHECKERS="${RCLONE_CHECKERS:-4}"
-export RCLONE_TPSLIMIT="${RCLONE_TPSLIMIT:-5}"
-export RCLONE_TPSLIMIT_BURST="${RCLONE_TPSLIMIT_BURST:-10}"
+export RCLONE_TRANSFERS="${RCLONE_TRANSFERS:-$_def_transfers}"
+export RCLONE_CHECKERS="${RCLONE_CHECKERS:-$_def_checkers}"
+export RCLONE_TPSLIMIT="${RCLONE_TPSLIMIT:-$_def_tps}"
+export RCLONE_TPSLIMIT_BURST="${RCLONE_TPSLIMIT_BURST:-$_def_burst}"
 export RCLONE_CONTIMEOUT="${RCLONE_CONTIMEOUT:-30s}"
 export RCLONE_TIMEOUT="${RCLONE_TIMEOUT:-300s}"
 export RCLONE_LOW_LEVEL_RETRIES="${RCLONE_LOW_LEVEL_RETRIES:-10}"
 export RCLONE_RETRIES="${RCLONE_RETRIES:-5}"
 [[ -n "${RCLONE_BWLIMIT:-}" ]] && export RCLONE_BWLIMIT
+# Exportar el perfil efectivo para que snapctl lo pueda imprimir en status/logs.
+export RCLONE_PROFILE_EFFECTIVE="$_snapshot_rclone_profile"
+unset _snapshot_rclone_profile _def_transfers _def_checkers _def_tps _def_burst _def_pacer
 
 # ---------- Logging estructurado (JSON lines) ----------
 _ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
