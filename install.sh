@@ -183,13 +183,25 @@ cat <<EOF
   API:        http://127.0.0.1:${API_PORT}/api/health
   CLI:        snapctl status
 
-  Configuración: $INSTALL_ROOT/core/etc/snapshot.conf
-  Logs:          $LOG_DIR/
+  Configuración global:    $INSTALL_ROOT/core/etc/snapshot.conf
+  Override local (secrets): /etc/snapshot-v3/snapshot.local.conf
+  Logs:                    $LOG_DIR/
 
-  Rclone Google Drive:
-    rclone config --config $STATE_DIR/rclone.conf   # crear remoto 'gdrive'
+  SIGUIENTES PASOS:
 
-  Timers activos:
-    systemctl list-timers 'snapshot*'
+  1. Edita /etc/snapshot-v3/snapshot.local.conf y rellena GOOGLE_CLIENT_ID
+     y GOOGLE_CLIENT_SECRET del OAuth Client de Google Cloud Console.
+       sudo nano /etc/snapshot-v3/snapshot.local.conf
+       sudo systemctl restart snapshot-backend
+
+  2. Abre el panel web (por SSH tunnel si estás remoto) y usa
+     "Vincular Drive" para autorizar vía Device Flow. El backend escribe
+     $STATE_DIR/rclone.conf automáticamente — NO hace falta 'rclone config'
+     a mano.
+
+  3. Verifica:
+       sudo snapctl status
+       systemctl list-timers 'snapshot*'
+       sudo snapctl create --tag post-install   # snapshot de prueba
 
 EOF
