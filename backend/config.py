@@ -24,7 +24,12 @@ def _read_shell_conf(path: Path) -> dict:
 
 
 _DEFAULT_CONF = Path(os.getenv("CONF_FILE", "/opt/snapshot-V3/core/etc/snapshot.conf"))
+_LOCAL_CONF = Path(os.getenv("LOCAL_CONF", "/etc/snapshot-v3/snapshot.local.conf"))
+
+# Mismo contrato que core/lib/common.sh: el .local.conf sobreescribe al .conf
+# global. Aquí vive GOOGLE_CLIENT_ID/SECRET y cualquier override por cliente.
 _CONF = _read_shell_conf(_DEFAULT_CONF)
+_CONF.update(_read_shell_conf(_LOCAL_CONF))
 
 
 class Config:

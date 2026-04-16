@@ -77,7 +77,8 @@ def start_device_flow(client_id: str, scope: str) -> DeviceCode:
     if not client_id:
         raise OAuthError(
             "GOOGLE_CLIENT_ID no está configurado. Edita "
-            "/opt/snapshot-V3/core/etc/snapshot.conf y reinicia el backend."
+            "/etc/snapshot-v3/snapshot.local.conf y reinicia el backend "
+            "(sudo systemctl restart snapshot-backend)."
         )
     status, payload = _post_form(DEVICE_CODE_URL, {"client_id": client_id, "scope": scope})
     if status != 200:
