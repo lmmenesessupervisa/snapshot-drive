@@ -140,10 +140,19 @@ python3 -m venv "$INSTALL_ROOT/.venv"
 "$INSTALL_ROOT/.venv/bin/pip" install -r "$INSTALL_ROOT/backend/requirements.txt"
 
 bold "[5/7] Inicializando repositorio restic"
-if snapctl status >/dev/null 2>&1; then
-    info "Estado previo detectado, saltando init."
+# snapctl status es read-only y SIEMPRE retorna 0, así que no sirve como
+# guardia ("¿ya está inicializado?"). Chequeamos directamente el password
+# file, que es lo que cmd_init crea primero y cmd_create requiere.
+# cmd_init es idempotente (no regenera password, no re-init repos ya existentes).
+RESTIC_PASS="$STATE_DIR/.restic-pass"
+if [[ -f "$RESTIC_PASS" ]]; then
+    info "Password file ya existe; saltando init."
 else
-    snapctl init || info "init no-op (posiblemente ya inicializado)"
+    if ! snapctl init; then
+        echo "!! snapctl init falló. Revisa $LOG_DIR/snapctl.log y ejecútalo"
+        echo "!! manualmente: sudo snapctl init"
+        exit 1
+    fi
 fi
 
 bold "[6/7] Instalando unidades systemd"
