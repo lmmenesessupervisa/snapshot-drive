@@ -209,6 +209,11 @@ history = history[:50]
 totals = existing.get("totals") or {}
 if status == "ok":
     totals["last_successful_backup_ts"] = now
+    # ok_count cuenta cualquier operación exitosa (archive, create, reconcile,
+    # prune). Antes solo contábamos 'create' que dejó el contador en 0 para
+    # instalaciones archive-only.
+    totals["ok_count"] = (totals.get("ok_count") or 0) + 1
+    # Mantener create_count legacy para retro-compat con status.json antiguos.
     if op == "create":
         totals["create_count"] = (totals.get("create_count") or 0) + 1
 elif status == "fail":

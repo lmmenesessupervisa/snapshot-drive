@@ -65,11 +65,23 @@ function opLabel(op) {
   return ({ create: "Crear", reconcile: "Reconciliar", prune: "Purgar", init: "Inicializar" })[op] || op || "—";
 }
 
+// Cuenta OK/FAIL: prefiere los contadores del totals (acumulativos), y si
+// no existen (status.json viejos sin ok_count) deriva del history que se
+// envía al cliente (últimos N eventos, no total histórico — esto es una
+// aproximación; para el conteo real el backend escribe ok_count desde
+// ahora).
+function countFromHistory(history, status) {
+  return (history || []).filter(h => h.status === status).length;
+}
+
 function clientRow(c) {
   const last = c.last || {};
   const totals = c.totals || {};
-  const okCount = totals.create_count || 0;
-  const failCount = totals.fail_count || 0;
+  const okCount   = (totals.ok_count   != null) ? totals.ok_count
+                  : (totals.create_count != null ? totals.create_count
+                  : countFromHistory(c.history, "ok"));
+  const failCount = (totals.fail_count != null) ? totals.fail_count
+                  : countFromHistory(c.history, "fail");
   const target = last.target ? `<span class="text-[var(--muted-2)]">· ${last.target}</span>` : "";
   const tag = last.tag ? `<span class="text-[var(--muted-2)]">#${last.tag}</span>` : "";
   const expanded = STATE.expanded.has(c.host);
