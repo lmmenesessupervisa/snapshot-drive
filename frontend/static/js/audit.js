@@ -190,7 +190,12 @@ function renderKpis() {
   $("kpi-silent").textContent     = s.silent     ?? "0";
   $("kpi-running").textContent    = s.running    ?? "0";
   $("kpi-unreported").textContent = s.unreported ?? "0";
-  $("audit-last-ts").textContent  = new Date().toLocaleTimeString("es-ES", { hour12: false });
+  // Preferimos el updated_ts del backend (refleja la frescura real de rclone),
+  // no el reloj local en el momento del render.
+  const ts = STATE.data?.updated_ts;
+  $("audit-last-ts").textContent = ts
+    ? new Date(ts * 1000).toLocaleTimeString("es-ES", { hour12: false })
+    : "—";
 }
 
 function showError(msg) {
@@ -202,6 +207,14 @@ function showError(msg) {
 function hideError() { $("audit-error").classList.add("hidden"); }
 
 async function fetchStatus(force = false) {
+  // Pinta lo que haya en cache al instante (si hay) y dispara el refetch.
+  const cached = Cache.get("audit:status", null);
+  if (cached && !force) {
+    STATE.data = cached;
+    hideError();
+    renderKpis();
+    renderTable();
+  }
   try {
     const url = "/audit/api/status" + (force ? "?force=1" : "");
     const resp = await fetch(url, { credentials: "same-origin" });
@@ -209,11 +222,12 @@ async function fetchStatus(force = false) {
     const body = await resp.json();
     if (!body.ok) throw new Error(body.error || "error desconocido");
     STATE.data = body;
+    Cache.set("audit:status", body);
     hideError();
     renderKpis();
     renderTable();
   } catch (e) {
-    showError(`No se pudo cargar la auditoría: ${e.message}`);
+    if (!cached) showError(`No se pudo cargar la auditoría: ${e.message}`);
   }
 }
 
@@ -221,6 +235,7 @@ async function hardRefresh() {
   try {
     await fetch("/audit/api/refresh", { method: "POST", credentials: "same-origin" });
   } catch {}
+  Cache.invalidate("audit:");
   await fetchStatus(true);
 }
 
@@ -235,4 +250,6 @@ $("filter-search").addEventListener("input", (e) => {
 });
 
 fetchStatus();
-STATE.refreshTimer = setInterval(() => fetchStatus(false), 30_000);
+// Auto-refresh cada 2 min, solo si el tab está visible (evita pegar al
+// rclone del backend cuando estás en otra pestaña).
+autoRefresh(() => fetchStatus(false), 120_000);

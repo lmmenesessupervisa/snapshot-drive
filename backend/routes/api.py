@@ -236,16 +236,18 @@ def archive_password_clear():
 # ---------- Archive: operaciones ----------
 @api_bp.get("/archive/list")
 def archive_list():
+    force = request.args.get("force") == "1"
     try:
-        return _ok(archive_ops.list_archives())
+        return _ok(archive_ops.list_archives(force=force))
     except ArchiveOpError as e:
         return _err(str(e), 400)
 
 
 @api_bp.get("/archive/summary")
 def archive_summary():
+    force = request.args.get("force") == "1"
     try:
-        return _ok(archive_ops.summary())
+        return _ok(archive_ops.summary(force=force))
     except ArchiveOpError as e:
         return _err(str(e), 400)
 

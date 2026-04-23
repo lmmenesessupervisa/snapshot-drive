@@ -46,31 +46,39 @@ function rowHtml(a) {
   `;
 }
 
+function renderList(list) {
+  const tbody = $("arch-body");
+  STATE.archives = list || [];
+  if (!STATE.archives.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-10 text-center text-[var(--muted)]">
+      Aún no hay archivos en Drive. Pulsa <b>Generar archivo ahora</b> para crear el primero.
+    </td></tr>`;
+    return;
+  }
+  tbody.innerHTML = STATE.archives.map(rowHtml).join("");
+}
+
 async function load() {
   const tbody = $("arch-body");
-  tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-10 text-center text-[var(--muted)]">Cargando…</td></tr>`;
+  // Muestra último estado conocido al instante si hay cache.
+  const cachedList = Cache.get("archive:list", null);
+  if (cachedList) renderList(cachedList);
+  else tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-10 text-center text-[var(--muted)]">Cargando…</td></tr>`;
+
   try {
-    // Primero miramos si la taxonomía está configurada.
     const cfg = await API.get("/archive/config");
     if (!cfg.proyecto || !cfg.entorno || !cfg.pais) {
       $("archive-setup-warning").classList.remove("hidden");
       tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-10 text-center text-[var(--muted)]">Configura la taxonomía para empezar.</td></tr>`;
       return;
-    } else {
-      $("archive-setup-warning").classList.add("hidden");
     }
+    $("archive-setup-warning").classList.add("hidden");
 
-    const list = await API.get("/archive/list");
-    STATE.archives = list;
-    if (!list.length) {
-      tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-10 text-center text-[var(--muted)]">
-        Aún no hay archivos en Drive. Pulsa <b>Generar archivo ahora</b> para crear el primero.
-      </td></tr>`;
-      return;
-    }
-    tbody.innerHTML = list.map(rowHtml).join("");
+    await cachedFetch("archive:list", "/archive/list", 60_000, (list) => renderList(list));
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-10 text-center text-rose-600">Error: ${e.message}</td></tr>`;
+    if (!cachedList) {
+      tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-10 text-center" style="color:#b91c1c">Error: ${e.message}</td></tr>`;
+    }
   }
 }
 
@@ -81,6 +89,7 @@ $("btn-create-archive").onclick = async () => {
   try {
     const res = await API.post("/archive/create", {});
     toast(`Archivo creado en ${res.duration_s}s`, "success");
+    Cache.invalidate("archive:");
     await load();
   } catch (e) {
     toast(`Error al crear: ${e.message}`, "error");
@@ -126,6 +135,7 @@ $("delete-go").onclick = async () => {
     await API.post("/archive/delete", { path: STATE.selected.path });
     toast("Archivo eliminado", "success");
     closeDelete();
+    Cache.invalidate("archive:");
     await load();
   } catch (e) { toast(`Error: ${e.message}`, "error"); }
 };

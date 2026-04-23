@@ -68,32 +68,36 @@ function renderLastDetail(last) {
   `;
 }
 
+function render(s) {
+  $("kpi-count").textContent = s.archives_count ?? "0";
+  $("kpi-size").textContent  = fmtBytes(s.total_size_bytes || 0);
+
+  if (s.last) {
+    $("kpi-last-ago").textContent = ago(s.last.modified_ts);
+    $("kpi-last-sub").textContent = fmtFullTs(s.last.modified_ts);
+    $("last-when").textContent = fmtFullTs(s.last.modified_ts);
+  } else {
+    $("kpi-last-ago").textContent = "—";
+    $("kpi-last-sub").textContent = "sin archivos aún";
+    $("last-when").textContent = "—";
+  }
+  renderLastDetail(s.last);
+
+  $("kpi-next").textContent = fmtNextRun(s.next_scheduled) || "—";
+
+  if (s.drive_path_root) {
+    $("drive-root-preview").textContent = `${s.drive_path_root}/…`;
+  } else {
+    $("drive-root-preview").textContent = "(taxonomía sin configurar)";
+  }
+
+  $("dash-setup-warning").classList.toggle("hidden", !!s.taxonomy_ok);
+}
+
 async function load() {
   try {
-    const s = await API.get("/archive/summary");
-    $("kpi-count").textContent = s.archives_count ?? "0";
-    $("kpi-size").textContent  = fmtBytes(s.total_size_bytes || 0);
-
-    if (s.last) {
-      $("kpi-last-ago").textContent = ago(s.last.modified_ts);
-      $("kpi-last-sub").textContent = fmtFullTs(s.last.modified_ts);
-      $("last-when").textContent = fmtFullTs(s.last.modified_ts);
-    } else {
-      $("kpi-last-ago").textContent = "—";
-      $("kpi-last-sub").textContent = "sin archivos aún";
-      $("last-when").textContent = "—";
-    }
-    renderLastDetail(s.last);
-
-    $("kpi-next").textContent = fmtNextRun(s.next_scheduled) || "—";
-
-    if (s.drive_path_root) {
-      $("drive-root-preview").textContent = `${s.drive_path_root}/…`;
-    } else {
-      $("drive-root-preview").textContent = "(taxonomía sin configurar)";
-    }
-
-    $("dash-setup-warning").classList.toggle("hidden", !!s.taxonomy_ok);
+    // Muestra cache al instante si hay, refetch en background con TTL 60s.
+    await cachedFetch("archive:summary", "/archive/summary", 60_000, (s) => render(s));
   } catch (e) {
     toast(`Error cargando dashboard: ${e.message}`, "error");
   }
@@ -105,11 +109,15 @@ $("btn-create").onclick = async () => {
   try {
     const res = await API.post("/archive/create", {});
     toast(`Archivo creado en ${res.duration_s}s`, "success");
-    await load();
+    Cache.invalidate("archive:");           // el backend ya lo invalidó también
+    const fresh = await API.get("/archive/summary?force=1");
+    Cache.set("archive:summary", fresh);
+    render(fresh);
   } catch (e) {
     toast(`Error: ${e.message}`, "error");
   } finally { end(); }
 };
 
 load();
-setInterval(load, 60_000);
+// Auto-refresh solo cuando la pestaña está visible.
+autoRefresh(load, 120_000);

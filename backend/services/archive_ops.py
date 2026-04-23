@@ -25,6 +25,30 @@ class ArchiveOpError(Exception):
     pass
 
 
+# ---------------- TTL cache (in-process, gunicorn 1 worker) ----------------
+# rclone lsjson contra Drive no es gratis: cada listado es varias llamadas a
+# la API y tarda 1-3s. El Dashboard/Snapshots/Audit consultan estos endpoints
+# en cada page load. Un cache de ~60s evita que navegar entre vistas dispare
+# rclone cada vez. Se invalida explícitamente tras create/delete/restore.
+_CACHE: dict[str, tuple[float, Any]] = {}
+_CACHE_TTL_S = 60.0
+
+
+def _cache_get(key: str):
+    hit = _CACHE.get(key)
+    if hit and (time.time() - hit[0]) < _CACHE_TTL_S:
+        return hit[1]
+    return None
+
+
+def _cache_set(key: str, value):
+    _CACHE[key] = (time.time(), value)
+
+
+def invalidate_cache() -> None:
+    _CACHE.clear()
+
+
 # ---------------- parsing helpers ----------------
 _NAME_RE = re.compile(r"^servidor_(?P<host>[A-Za-z0-9_.\-]+)_(?P<ts>\d{8}_\d{6})\.(?P<ext>tar\.zst(?:\.enc)?)$")
 
@@ -67,8 +91,13 @@ def _archive_root_for(cfg: dict, host_scope: str | None = None) -> str:
 
 
 # ---------------- list ----------------
-def list_archives() -> list[dict]:
+def list_archives(force: bool = False) -> list[dict]:
     """Lista archives del host local (taxonomía del propio cliente)."""
+    if not force:
+        cached = _cache_get("list")
+        if cached is not None:
+            return cached
+
     cfg = archive_config.get_config()
     root = _archive_root_for(cfg)
     remote = f"{Config.RCLONE_REMOTE}:{root}"
@@ -76,11 +105,13 @@ def list_archives() -> list[dict]:
         raw = _rclone("lsjson", "-R", "--files-only", remote, timeout=60)
     except ArchiveOpError as e:
         if "directory not found" in str(e).lower() or "not found" in str(e).lower():
+            _cache_set("list", [])
             return []
         raise
     try:
         items = json.loads(raw or "[]")
     except json.JSONDecodeError:
+        _cache_set("list", [])
         return []
 
     out: list[dict] = []
@@ -99,12 +130,18 @@ def list_archives() -> list[dict]:
             "host": parsed["host"],
         })
     out.sort(key=lambda x: x["modified_ts"], reverse=True)
+    _cache_set("list", out)
     return out
 
 
 # ---------------- summary (Dashboard) ----------------
-def summary() -> dict:
+def summary(force: bool = False) -> dict:
     """Datos agregados para el Dashboard."""
+    if not force:
+        cached = _cache_get("summary")
+        if cached is not None:
+            return cached
+
     cfg = archive_config.get_config()
     result = {
         "taxonomy_ok": bool(cfg["proyecto"] and cfg["entorno"] and cfg["pais"]),
@@ -150,6 +187,7 @@ def summary() -> dict:
             result["next_scheduled"] = val
     except Exception:
         pass
+    _cache_set("summary", result)
     return result
 
 
@@ -171,9 +209,10 @@ def create_archive() -> dict:
             f"snapctl archive rc={r.returncode} (dur={dur}s): "
             f"{r.stderr.strip()[:500] or r.stdout.strip()[:500]}"
         )
-    # Toma el último archive recién creado.
+    # Acabamos de subir un archivo nuevo: forzar refresh para que aparezca.
+    invalidate_cache()
     try:
-        archives = list_archives()
+        archives = list_archives(force=True)
     except ArchiveOpError:
         archives = []
     last = archives[0] if archives else None
@@ -233,4 +272,5 @@ def delete_archive(remote_path: str) -> dict:
 
     remote = f"{Config.RCLONE_REMOTE}:{remote_path}"
     _rclone("deletefile", remote, timeout=30)
+    invalidate_cache()   # el listado cambió
     return {"path": remote_path}

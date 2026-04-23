@@ -17,18 +17,28 @@ const API = {
   del:  (p)     => API.req('DELETE', p),
 };
 
+// Nota: usa inline styles en lugar de clases Tailwind para evitar que los
+// overrides del tema claro dejen el texto ilegible (text-slate-100 se
+// remapea a foreground oscuro y chocaba con el fondo oscuro del toast).
 function toast(msg, kind = 'info') {
   const el = document.getElementById('toast');
   if (!el) return alert(msg);
   const palette = {
-    info:    'bg-slate-800/90 text-slate-100 border border-slate-700',
-    success: 'bg-emerald-600/90 text-white border border-emerald-400/40',
-    error:   'bg-rose-600/90 text-white border border-rose-400/40',
+    info:    { bg: '#0f172a', fg: '#ffffff' },  // slate-900
+    success: { bg: '#059669', fg: '#ffffff' },  // emerald-600
+    error:   { bg: '#dc2626', fg: '#ffffff' },  // red-600
+    warn:    { bg: '#b45309', fg: '#ffffff' },  // amber-700
   };
-  el.className = 'px-4 py-2 rounded-lg text-sm font-medium ' + (palette[kind] || palette.info);
+  const p = palette[kind] || palette.info;
+  el.className = 'px-4 py-2 rounded-lg text-sm font-medium';
+  el.style.background = p.bg;
+  el.style.color = p.fg;
+  el.style.border = '1px solid rgba(0,0,0,.15)';
+  el.style.boxShadow = '0 4px 16px rgba(15,23,42,.18)';
   el.textContent = msg;
   el.classList.remove('hidden');
-  setTimeout(() => el.classList.add('hidden'), 4000);
+  clearTimeout(el._toastTimer);
+  el._toastTimer = setTimeout(() => el.classList.add('hidden'), 4000);
 }
 
 function fmtBytes(n) {
@@ -91,6 +101,72 @@ function busyStart(label) {
     ov.classList.add('hidden');
     ov.classList.remove('flex');
   };
+}
+
+// ---------- Cache por sessionStorage con TTL ----------
+// Objetivo: navegar entre vistas NO debe disparar fetchs al backend si los
+// datos son recientes. Cada vista llama a `cachedFetch(key, endpoint, ttlMs)`,
+// que muestra los datos cacheados (si hay) al instante y en paralelo
+// refresca en background para actualizar el storage. Sobre page reload, el
+// cache desaparece (sessionStorage persiste solo mientras dura la pestaña).
+const Cache = {
+  get(key, ttlMs) {
+    try {
+      const raw = sessionStorage.getItem('cache:' + key);
+      if (!raw) return null;
+      const { ts, data } = JSON.parse(raw);
+      if (ttlMs != null && Date.now() - ts > ttlMs) return null;
+      return data;
+    } catch { return null; }
+  },
+  set(key, data) {
+    try {
+      sessionStorage.setItem('cache:' + key, JSON.stringify({ ts: Date.now(), data }));
+    } catch { /* quota lleno — OK */ }
+  },
+  invalidate(prefix) {
+    Object.keys(sessionStorage)
+      .filter(k => k.startsWith('cache:' + prefix))
+      .forEach(k => sessionStorage.removeItem(k));
+  },
+};
+
+// Muestra datos cacheados instantáneo + refresca en background.
+//   key:       string identificador ('archive:summary')
+//   endpoint:  '/archive/summary'
+//   ttlMs:     ventana en que consideramos el cache 'fresco'
+//   onData:    (data, isStale) => void — se llama primero con cache (si hay),
+//              luego con los datos frescos cuando llegan.
+async function cachedFetch(key, endpoint, ttlMs, onData) {
+  const cached = Cache.get(key, null);   // ignora TTL para mostrar algo al instante
+  if (cached) onData(cached, /*stale=*/true);
+
+  const fresh = Cache.get(key, ttlMs);   // ¿sigue dentro del TTL? → no hace falta refetch
+  if (fresh && cached) return fresh;
+
+  try {
+    const data = await API.get(endpoint);
+    Cache.set(key, data);
+    onData(data, false);
+    return data;
+  } catch (e) {
+    if (!cached) throw e;
+    console.warn('cachedFetch:', endpoint, e.message);
+    return cached;
+  }
+}
+
+// Auto-refresh consciente de visibilidad: pausa cuando la pestaña está oculta.
+function autoRefresh(fn, intervalMs) {
+  let t = null;
+  const start = () => { if (!t && !document.hidden) t = setInterval(fn, intervalMs); };
+  const stop  = () => { if (t) { clearInterval(t); t = null; } };
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stop();
+    else { fn(); start(); }     // al volver, refresca inmediatamente
+  });
+  start();
+  return stop;
 }
 
 // Indicador de salud del API en sidebar
