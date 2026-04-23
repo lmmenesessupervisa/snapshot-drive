@@ -112,6 +112,7 @@ UNITS=(
     snapshot@create.timer
     snapshot@reconcile.timer
     snapshot@prune.timer
+    snapshot@archive.timer
     snapshot@sync.timer
     snapshot@check.timer
 )
@@ -133,10 +134,14 @@ for f in "${UNIT_FILES[@]}"; do
         [[ $DRY -eq 0 ]] && info "borrado $f"
     fi
 done
-if [[ -d /etc/systemd/system/snapshot@reconcile.timer.d ]]; then
-    run rm -rf /etc/systemd/system/snapshot@reconcile.timer.d
-    [[ $DRY -eq 0 ]] && info "borrado /etc/systemd/system/snapshot@reconcile.timer.d"
-fi
+for DROPIN in /etc/systemd/system/snapshot@reconcile.timer.d \
+              /etc/systemd/system/snapshot@archive.timer.d \
+              /etc/systemd/system/snapshot@archive.service.d; do
+    if [[ -d "$DROPIN" ]]; then
+        run rm -rf "$DROPIN"
+        [[ $DRY -eq 0 ]] && info "borrado $DROPIN"
+    fi
+done
 
 sd daemon-reload
 # reset-failed SIN argumentos resetea TODO systemd, afectando a otros

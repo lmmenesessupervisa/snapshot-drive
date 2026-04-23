@@ -45,6 +45,34 @@ AUDIT_PASSWORD=""
 # (si cada cliente sube a 'snapshots/<hostname>/', déjalo en 'snapshots').
 AUDIT_REMOTE_PATH="snapshots"
 
+# --- Backup mensual cold-storage (archive) ---------------------------------
+# snapctl archive genera un .tar.zst (opcionalmente encriptado) y lo sube a
+# una ruta taxonómica dentro del shared Drive:
+#   BACKUP_PROYECTO/BACKUP_ENTORNO/BACKUP_PAIS/os/linux/BACKUP_NOMBRE/
+#     YYYY/MM/DD/servidor_<nombre>_<YYYYMMDD_HHMMSS>.tar.zst[.enc]
+#
+# Todo configurable desde el panel (Ajustes → Backup mensual). Aquí abajo el
+# ejemplo de los valores esperados.
+#
+# Valores válidos para proyecto:  superaccess-uno | superaccess-dos |
+#                                 basculas | proyectos-especiales | orus
+# Valores para entorno:           cloud | local
+# Valores para pais:              colombia | peru | costa-rica | panama
+# BACKUP_NOMBRE default: $(hostname -s)
+BACKUP_PROYECTO=""
+BACKUP_ENTORNO=""
+BACKUP_PAIS=""
+BACKUP_NOMBRE=""
+
+# Password de encriptación. Si está vacía, los archivos se suben en claro
+# (.tar.zst sin .enc). Si se pone, encripta con AES-256-CBC + PBKDF2 100k.
+# ATENCIÓN: si la cambias, los archivos viejos siguen necesitando la
+# password vieja para descifrarlos — guarda un registro.
+ARCHIVE_PASSWORD=""
+
+# Retención del archive-prune (meses). Por default conserva últimos 12.
+ARCHIVE_KEEP_MONTHS="12"
+
 # --- Tuning rclone (opcional) -----------------------------------------------
 # Perfil automático según el tipo de Drive detectado en rclone.conf:
 #   auto (default) — "shared" si rclone.conf tiene team_drive, "personal" si no

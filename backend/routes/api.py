@@ -21,6 +21,8 @@ from ..services.drive_oauth import (
 from ..services.snapctl import SnapctlError
 from ..services import scheduler as sched
 from ..services import sysconfig
+from ..services import archive_config
+from ..services.archive_config import ArchiveConfigError
 
 log = logging.getLogger("api")
 api_bp = Blueprint("api", __name__, url_prefix="/api")
@@ -382,3 +384,46 @@ def drive_oauth_device_poll():
     except SnapctlError as e:
         return _err(str(e), 400 if e.rc == 2 else 500, e.stderr)
     return _ok({"status": "linked"})
+
+
+# ---------- Archive (backup mensual cold-storage) ----------
+@api_bp.get("/archive/config")
+def archive_config_get():
+    return _ok(archive_config.get_config())
+
+
+@api_bp.post("/archive/config")
+def archive_config_set():
+    payload = request.get_json(silent=True) or {}
+    try:
+        res = archive_config.set_taxonomy(payload)
+        _db().audit(
+            "api", "archive-config",
+            f"proyecto={res['proyecto']} entorno={res['entorno']} pais={res['pais']} nombre={res['nombre']}",
+        )
+        return _ok(res)
+    except ArchiveConfigError as e:
+        return _err(str(e), 400)
+
+
+@api_bp.post("/archive/password")
+def archive_password_set():
+    payload = request.get_json(silent=True) or {}
+    pw      = payload.get("password") or ""
+    confirm = payload.get("confirm") or ""
+    try:
+        res = archive_config.set_password(pw, confirm)
+        _db().audit("api", "archive-password", "set" if pw else "cleared")
+        return _ok(res)
+    except ArchiveConfigError as e:
+        return _err(str(e), 400)
+
+
+@api_bp.delete("/archive/password")
+def archive_password_clear():
+    try:
+        res = archive_config.clear_password()
+        _db().audit("api", "archive-password", "cleared")
+        return _ok(res)
+    except ArchiveConfigError as e:
+        return _err(str(e), 400)

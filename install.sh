@@ -229,11 +229,20 @@ install -d -m 0755 /etc/systemd/system/snapshot@reconcile.timer.d/
 install -m 0644 "$INSTALL_ROOT/systemd/snapshot@reconcile.timer.d/override.conf" \
     /etc/systemd/system/snapshot@reconcile.timer.d/override.conf
 
+# Drop-ins para el backup mensual cold-storage ('archive').
+install -d -m 0755 /etc/systemd/system/snapshot@archive.timer.d/
+install -m 0644 "$INSTALL_ROOT/systemd/snapshot@archive.timer.d/override.conf" \
+    /etc/systemd/system/snapshot@archive.timer.d/override.conf
+install -d -m 0755 /etc/systemd/system/snapshot@archive.service.d/
+install -m 0644 "$INSTALL_ROOT/systemd/snapshot@archive.service.d/override.conf" \
+    /etc/systemd/system/snapshot@archive.service.d/override.conf
+
 systemctl daemon-reload
 systemctl enable --now snapshot-backend.service
 systemctl enable --now snapshot@create.timer
 systemctl enable --now snapshot@reconcile.timer
 systemctl enable --now snapshot@prune.timer
+systemctl enable --now snapshot@archive.timer
 systemctl enable --now snapshot-healthcheck.timer
 systemctl disable --now snapshot@sync.timer 2>/dev/null || true
 

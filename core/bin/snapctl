@@ -14,6 +14,8 @@ SNAPSHOT_ROOT="${SNAPSHOT_ROOT:-/opt/snapshot-V3}"
 source "${SNAPSHOT_ROOT}/core/lib/common.sh"
 # shellcheck disable=SC1091
 source "${SNAPSHOT_ROOT}/core/lib/drive.sh"
+# shellcheck disable=SC1091
+source "${SNAPSHOT_ROOT}/core/lib/archive.sh"
 
 trap 'log_error "snapctl interrumpido en línea $LINENO"; exit 1' ERR
 trap '_release_on_abort' INT TERM
@@ -676,6 +678,11 @@ main() {
         drive-unlink)      drive_unlink ;;
         drive-shared-list) drive_shared_list ;;
         drive-target)      drive_set_target "$@" ;;
+        archive)           cmd_archive         "$@" ;;
+        archive-list)      cmd_archive_list    "$@" ;;
+        archive-restore)   cmd_archive_restore "$@" ;;
+        archive-prune)     cmd_archive_prune   "$@" ;;
+        archive-paths)     cmd_archive_paths   "$@" ;;
         help|-h|--help)    usage ;;
         *) usage; exit 1 ;;
     esac

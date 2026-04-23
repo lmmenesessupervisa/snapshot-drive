@@ -72,3 +72,13 @@ class Config:
         os.getenv("RCLONE_BIN")
         or str(SNAPSHOT_ROOT / "bundle" / "bin" / "rclone")
     )
+
+    # Archive (backup mensual cold-storage) — taxonomía + retention.
+    # Password NO se expone via Config (se lee fresh del local.conf en cada
+    # operación de escritura para no mantenerlo en memoria del backend).
+    LOCAL_CONF_PATH = _LOCAL_CONF
+    BACKUP_PROYECTO = _CONF.get("BACKUP_PROYECTO", "")
+    BACKUP_ENTORNO  = _CONF.get("BACKUP_ENTORNO", "")
+    BACKUP_PAIS     = _CONF.get("BACKUP_PAIS", "")
+    BACKUP_NOMBRE   = _CONF.get("BACKUP_NOMBRE", "")
+    ARCHIVE_KEEP_MONTHS = int(_CONF.get("ARCHIVE_KEEP_MONTHS", "12") or 12)

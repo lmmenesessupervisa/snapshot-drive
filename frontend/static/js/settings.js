@@ -375,7 +375,115 @@ $('btn-save-config').onclick = async () => {
 
 $('refresh-config').onclick = loadConfig;
 
+// =============================================================
+// Backup mensual (archive cold-storage)
+// =============================================================
+const ARCH_STATE = { cfg: null };
+
+function populateSelect(el, values, selected) {
+  el.innerHTML = values.map(v => `<option value="${v}" ${v===selected?'selected':''}>${v}</option>`).join('');
+}
+
+function refreshArchivePathPreview() {
+  const p = $('arch-proyecto').value;
+  const e = $('arch-entorno').value;
+  const c = $('arch-pais').value;
+  const n = $('arch-nombre').value.trim() || (ARCH_STATE.cfg?.hostname || '<hostname>');
+  if (!p || !e || !c) {
+    $('arch-path-preview').textContent = '(configura los campos de arriba)';
+    return;
+  }
+  const ext = (ARCH_STATE.cfg?.password_set) ? 'tar.zst.enc' : 'tar.zst';
+  const now = new Date();
+  const pad = (x,w=2) => String(x).padStart(w,'0');
+  const ts = `${now.getUTCFullYear()}${pad(now.getUTCMonth()+1)}${pad(now.getUTCDate())}_${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}`;
+  $('arch-path-preview').textContent =
+    `${p}/${e}/${c}/os/linux/${n}/${now.getUTCFullYear()}/${pad(now.getUTCMonth()+1)}/${pad(now.getUTCDate())}/servidor_${n}_${ts}.${ext}`;
+}
+
+function renderPasswordState(cfg) {
+  const el = $('arch-pwd-state');
+  if (cfg.password_set) {
+    el.textContent = 'configurada (encriptación activa)';
+    el.className = 'font-mono ml-1 text-emerald-300';
+  } else {
+    el.textContent = 'sin configurar (archivos subidos SIN encriptación)';
+    el.className = 'font-mono ml-1 text-amber-300';
+  }
+}
+
+async function loadArchiveConfig() {
+  try {
+    const cfg = await API.get('/archive/config');
+    ARCH_STATE.cfg = cfg;
+    populateSelect($('arch-proyecto'), [''].concat(cfg.valid_proyectos), cfg.proyecto);
+    populateSelect($('arch-entorno'),  [''].concat(cfg.valid_entornos),  cfg.entorno);
+    populateSelect($('arch-pais'),     [''].concat(cfg.valid_paises),    cfg.pais);
+    $('arch-nombre').value = (cfg.nombre && cfg.nombre !== cfg.hostname) ? cfg.nombre : '';
+    $('arch-nombre').placeholder = `(por defecto: ${cfg.hostname})`;
+    $('arch-keep').value = cfg.keep_months || 12;
+    renderPasswordState(cfg);
+    refreshArchivePathPreview();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+['arch-proyecto','arch-entorno','arch-pais','arch-nombre'].forEach(id =>
+  $(id).addEventListener('input', refreshArchivePathPreview)
+);
+
+$('btn-save-archive').onclick = async () => {
+  const payload = {
+    proyecto: $('arch-proyecto').value,
+    entorno:  $('arch-entorno').value,
+    pais:     $('arch-pais').value,
+    nombre:   $('arch-nombre').value.trim(),
+    keep_months: parseInt($('arch-keep').value || '12', 10),
+  };
+  try {
+    toast('Guardando taxonomía…');
+    await API.post('/archive/config', payload);
+    toast('Taxonomía guardada', 'success');
+    await loadArchiveConfig();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+$('btn-save-archive-pwd').onclick = async () => {
+  const pw = $('arch-pwd').value;
+  const co = $('arch-pwd-confirm').value;
+  if (!pw) return toast('La contraseña no puede estar vacía (usa "Quitar encriptación" si quieres desactivar)', 'error');
+  if (pw !== co) return toast('La confirmación no coincide', 'error');
+  if (pw.length < 8) return toast('Mínimo 8 caracteres', 'error');
+  try {
+    toast('Guardando contraseña…');
+    await API.post('/archive/password', { password: pw, confirm: co });
+    toast('Contraseña actualizada', 'success');
+    $('arch-pwd').value = '';
+    $('arch-pwd-confirm').value = '';
+    await loadArchiveConfig();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+$('btn-clear-archive-pwd').onclick = async () => {
+  if (!confirm('Quitar la encriptación significa que los próximos archivos se subirán en CLARO a Drive. Los archivos viejos encriptados seguirán necesitando la password anterior para descifrarse. ¿Continuar?')) return;
+  try {
+    await fetch('/api/archive/password', { method: 'DELETE', credentials: 'same-origin' });
+    toast('Encriptación desactivada', 'success');
+    $('arch-pwd').value = '';
+    $('arch-pwd-confirm').value = '';
+    await loadArchiveConfig();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+$('arch-pwd-show').addEventListener('change', (e) => {
+  const t = e.target.checked ? 'text' : 'password';
+  $('arch-pwd').type = t;
+  $('arch-pwd-confirm').type = t;
+});
+
+$('refresh-archive').onclick = loadArchiveConfig;
+
 loadStatus();
 loadSchedules();
 loadRetention();
 loadConfig();
+loadArchiveConfig();
