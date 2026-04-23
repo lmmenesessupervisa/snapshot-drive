@@ -1,49 +1,54 @@
 /* ---------- snapshot-V3 · tema claro (shadcn-like) ---------- */
 
 :root {
-  /* Tokens shadcn-like (base provista por el usuario) */
+  /* Tokens shadcn-like (base provista por el usuario). Surface tokens
+     (--muted-surface, --accent-surface) son alias con sufijo para no
+     chocar con los legacy que los templates usan como texto. */
   --background:              #ffffff;
-  --foreground:              oklch(14.5% 0 0);
+  --foreground:              #0a0a0f;                 /* texto principal, alto contraste */
   --card:                    #ffffff;
-  --card-foreground:         oklch(14.5% 0 0);
-  --popover:                 oklch(100% 0 0);
-  --popover-foreground:      oklch(14.5% 0 0);
+  --card-foreground:         #0a0a0f;
+  --popover:                 #ffffff;
+  --popover-foreground:      #0a0a0f;
   --primary:                 #030213;
-  --primary-foreground:      oklch(100% 0 0);
-  --secondary:               oklch(95% .0058 264.53);
+  --primary-foreground:      #ffffff;
+  --secondary:               #f1f2f5;
   --secondary-foreground:    #030213;
-  --muted:                   #ececf0;
-  --muted-foreground:        #717182;
-  --accent:                  #e9ebef;
+  --muted-surface:           #ececf0;                 /* bg muted (shadcn: --muted) */
+  --muted-foreground:        #5b5d6e;                 /* texto muted — contraste AA */
+  --accent-surface:          #e9ebef;                 /* bg accent (shadcn: --accent) */
   --accent-foreground:       #030213;
   --destructive:             #d4183d;
   --destructive-foreground:  #ffffff;
-  --border-color:            #0000001a;
+  --border-color:            #0000001f;               /* 12% black, ligero incremento */
   --input:                   transparent;
   --input-background:        #f3f3f5;
-  --ring:                    oklch(70.8% 0 0);
+  --ring:                    #60a5fa;
   --radius:                  1rem;
   --radius-sm:               .75rem;
-  --sidebar:                 oklch(98.5% 0 0);
-  --sidebar-foreground:      oklch(14.5% 0 0);
+  --sidebar:                 #fafafb;
+  --sidebar-foreground:      #0a0a0f;
   --sidebar-primary:         #030213;
-  --sidebar-accent:          oklch(97% 0 0);
-  --sidebar-border:          oklch(92.2% 0 0);
+  --sidebar-accent:          #f1f1f3;
+  --sidebar-border:          #e5e5ea;
 
-  /* Alias legacy usados por los templates — remapeados al nuevo tema. */
+  /* Alias legacy — templates los usan como color de TEXTO, no de bg.
+     Por eso --muted apunta al --muted-foreground (no al bg) y los
+     "bg-*" legacy apuntan a los surface tokens. */
   --bg-0:        var(--background);
   --bg-1:        var(--sidebar);
-  --bg-2:        var(--accent);
-  --bg-3:        var(--muted);
+  --bg-2:        var(--accent-surface);
+  --bg-3:        var(--muted-surface);
   --border:      var(--border-color);
   --border-hi:   #00000033;
   --text:        var(--foreground);
-  --muted-2:     #9a9ba5;
+  --muted:       var(--muted-foreground);             /* #5b5d6e — legible sobre blanco */
+  --muted-2:     #7a7a87;                             /* un escalón más tenue, aún legible */
   --brand:       var(--primary);
   --brand-2:     #1b1b4a;
   --brand-glow:  rgba(3, 2, 19, .12);
   --success:     #059669;
-  --warn:        #d97706;
+  --warn:        #b45309;
   --danger:      var(--destructive);
 
   --shadow-sm:   0 1px 2px rgba(15, 23, 42, .04), 0 1px 1px rgba(15, 23, 42, .02);
@@ -184,7 +189,7 @@ details.card > summary { list-style: none; }
 .kpi .kpi-icon {
   position: absolute; top: 14px; right: 14px;
   width: 32px; height: 32px; border-radius: .6rem;
-  background: var(--accent);
+  background: var(--accent-surface);
   display: grid; place-items: center;
   color: var(--primary);
 }
@@ -272,7 +277,7 @@ header.app-header {
 }
 .spinner-ring {
   width: 44px; height: 44px; border-radius: 999px;
-  border: 3px solid var(--muted);
+  border: 3px solid var(--muted-surface);
   border-top-color: var(--primary);
   animation: spin 1s linear infinite;
 }
