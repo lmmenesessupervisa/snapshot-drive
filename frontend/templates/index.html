@@ -3,164 +3,82 @@
 {% block header %}Dashboard{% endblock %}
 
 {% block content %}
+<!-- KPIs -->
 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
   <div class="card card-hover kpi p-5">
     <div class="kpi-icon">
-      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 9l7-6 7 6"/><path d="M5 15l7 6 7-6"/></svg>
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
     </div>
-    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">En Drive</div>
-    <div class="mt-2 text-3xl font-semibold" id="kpi-drive-count">—</div>
-    <div class="text-xs text-[var(--muted-2)] mt-1">snapshots respaldados</div>
+    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Archivos en Drive</div>
+    <div class="mt-2 text-3xl font-semibold" id="kpi-count">—</div>
+    <div class="text-xs text-[var(--muted-2)] mt-1">respaldos mensuales acumulados</div>
   </div>
   <div class="card card-hover kpi p-5">
     <div class="kpi-icon">
-      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
     </div>
-    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Pendientes</div>
-    <div class="mt-2 text-3xl font-semibold" id="kpi-pending">—</div>
-    <div class="text-xs text-[var(--muted-2)] mt-1">en local, sin subir</div>
-  </div>
-  <div class="card card-hover kpi p-5">
-    <div class="kpi-icon">
-      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10a6 6 0 0 0-11.7-2A4 4 0 0 0 7 16h11a4 4 0 0 0 0-6z"/></svg>
-    </div>
-    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Drive alcanzable</div>
-    <div class="mt-2 text-3xl font-semibold" id="kpi-drive-ok">—</div>
-    <div class="text-xs text-[var(--muted-2)] mt-1">estado de conexión</div>
+    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Último archivo</div>
+    <div class="mt-2 text-3xl font-semibold" id="kpi-last-ago">—</div>
+    <div class="text-xs text-[var(--muted-2)] mt-1" id="kpi-last-sub">sin datos aún</div>
   </div>
   <div class="card card-hover kpi p-5">
     <div class="kpi-icon">
       <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></svg>
     </div>
-    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Buffer local</div>
+    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Espacio ocupado</div>
     <div class="mt-2 text-3xl font-semibold" id="kpi-size">—</div>
-    <div class="text-xs text-[var(--muted-2)] mt-1">tamaño en disco</div>
+    <div class="text-xs text-[var(--muted-2)] mt-1">suma de todos los archivos</div>
+  </div>
+  <div class="card card-hover kpi p-5">
+    <div class="kpi-icon">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    </div>
+    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Próximo programado</div>
+    <div class="mt-2 text-2xl font-semibold" id="kpi-next">—</div>
+    <div class="text-xs text-[var(--muted-2)] mt-1">timer <code class="mono">snapshot@archive.timer</code></div>
   </div>
 </div>
 
+<!-- Aviso de setup incompleto -->
+<div id="dash-setup-warning" class="hidden mt-6 rounded-xl border border-amber-400/40 bg-amber-50 text-amber-900 p-4 text-sm">
+  <b>Falta configurar la taxonomía.</b>
+  Ve a <a href="/settings" class="underline">Ajustes → Backup mensual</a> para definir proyecto, entorno y país
+  antes de que el timer pueda crear archivos.
+</div>
+
+<!-- Detalle del último archivo + acciones -->
 <div class="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
   <div class="lg:col-span-2 card">
     <div class="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between">
       <h2 class="font-semibold tracking-tight flex items-center gap-2">
-        <svg class="w-4 h-4 text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-        Último backup
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Último archivo
       </h2>
       <span id="last-when" class="text-xs text-[var(--muted)] mono">—</span>
     </div>
-    <div class="p-6 text-sm text-slate-300" id="last-detail">Cargando…</div>
+    <div class="p-6 text-sm" id="last-detail">Cargando…</div>
   </div>
 
-  <div class="card">
-    <div class="px-6 py-4 border-b border-[var(--border)]">
-      <h2 class="font-semibold tracking-tight flex items-center gap-2">
-        <svg class="w-4 h-4 text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
-        Acciones rápidas
-      </h2>
-    </div>
-    <div class="p-6 space-y-4">
-      <div>
-        <button data-act="create" class="w-full btn-primary">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-          Crear snapshot
-        </button>
-        <p class="mt-1.5 text-[11px] text-[var(--muted-2)]">Respaldo incremental de las rutas configuradas (<code class="mono" id="create-paths-hint">—</code>).</p>
-      </div>
-      <div>
-        <button data-act="estimate" class="w-full btn-secondary">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 10h8M8 14h8M8 18h5"/></svg>
-          Estimar peso
-        </button>
-        <p class="mt-1.5 text-[11px] text-[var(--muted-2)]">Calcula tamaño bruto y bytes que se subirían a Drive (dry-run, no toca el repo).</p>
-      </div>
-      <div>
-        <button data-act="reconcile" class="w-full btn-secondary">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4-4 4"/><path d="M21 7H3"/><path d="M7 21l-4-4 4-4"/><path d="M3 17h18"/></svg>
-          Reconciliar ahora
-        </button>
-        <p class="mt-1.5 text-[11px] text-[var(--muted-2)]">Sube a Drive los snapshots en buffer local y libera disco.</p>
-      </div>
-      <div>
-        <button data-act="check" class="w-full btn-secondary">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.7 6.5 19.5l1-6.3L3 8.9 9 8z"/></svg>
-          Verificar integridad
-        </button>
-        <p class="mt-1.5 text-[11px] text-[var(--muted-2)]">Valida que los datos del repo no estén corruptos (<code class="mono">restic check</code>).</p>
-      </div>
-      <div>
-        <button data-act="prune" class="w-full btn-danger">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-          Aplicar retención
-        </button>
-        <p class="mt-1.5 text-[11px] text-[var(--muted-2)]">
-          Diarios <b>7</b> · Semanales <b>4</b> · Mensuales <b>6</b> · Anuales <b>2</b>. <span class="text-rose-400">Irreversible.</span>
-        </p>
-      </div>
-      <div class="pt-3 border-t border-[var(--border)] space-y-3">
-        <div>
-          <button data-act="cleanup-local" class="w-full btn-secondary text-xs">
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            Limpiar buffer local
-          </button>
-          <p class="mt-1.5 text-[11px] text-[var(--muted-2)]">Libera paquetes huérfanos del repo local. <b>No vacía el buffer si aún hay snapshots locales</b> — para eso usa "Reconciliar ahora".</p>
-        </div>
-        <div>
-          <button data-act="unlock" class="w-full btn-secondary text-xs">
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 9-3"/></svg>
-            Forzar desbloqueo del repositorio
-          </button>
-          <p class="mt-1.5 text-[11px] text-[var(--muted-2)]">Úsalo solo si una operación anterior murió y el repo quedó bloqueado.</p>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Modal estimación de peso -->
-<div id="modal-estimate" class="hidden fixed inset-0 modal-backdrop z-50 grid place-items-center p-4">
-  <div class="modal-panel w-full max-w-md p-6">
-    <div class="flex items-center gap-3 mb-5">
-      <div class="w-10 h-10 rounded-xl bg-brand-500/15 grid place-items-center text-brand-400">
-        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 10h8M8 14h8M8 18h5"/></svg>
-      </div>
-      <div>
-        <h3 class="text-lg font-semibold">Estimación de peso</h3>
-        <p class="text-xs text-[var(--muted)]">Análisis sin ejecutar el snapshot.</p>
-      </div>
-    </div>
-    <div id="estimate-body" class="space-y-3 text-sm">
-      <div class="text-[var(--muted)]">Calculando…</div>
-    </div>
-    <div class="flex justify-end gap-2 mt-6">
-      <button id="est-close" class="btn-secondary">Cerrar</button>
-    </div>
-  </div>
-</div>
-
-<div class="mt-8 card overflow-hidden">
-  <div class="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between">
-    <h2 class="font-semibold tracking-tight flex items-center gap-2">
-      <svg class="w-4 h-4 text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-6"/></svg>
-      Jobs recientes
+  <div class="card p-6">
+    <h2 class="font-semibold tracking-tight mb-4 flex items-center gap-2">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      Acciones
     </h2>
-    <button id="refresh-jobs" class="text-xs text-brand-400 hover:text-brand-500 flex items-center gap-1">
-      <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
-      refrescar
-    </button>
-  </div>
-  <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead>
-        <tr>
-          <th class="text-left">#</th>
-          <th class="text-left">Tipo</th>
-          <th class="text-left">Estado</th>
-          <th class="text-left">RC</th>
-          <th class="text-left">Inicio</th>
-          <th class="text-left">Fin</th>
-        </tr>
-      </thead>
-      <tbody id="jobs-body"></tbody>
-    </table>
+    <div class="space-y-3 text-sm">
+      <button id="btn-create" class="btn-primary w-full justify-center">
+        Generar archivo ahora
+      </button>
+      <a href="/snapshots" class="btn-secondary w-full justify-center">
+        Ver listado de archivos
+      </a>
+      <a href="/settings" class="btn-secondary w-full justify-center">
+        Configurar taxonomía / contraseña
+      </a>
+    </div>
+    <div class="mt-5 pt-5 border-t border-[var(--border)]">
+      <div class="text-[11px] uppercase tracking-wider text-[var(--muted)] mb-1">Destino en Drive</div>
+      <div id="drive-root-preview" class="mono text-[11px] text-[var(--foreground)] break-all">—</div>
+    </div>
   </div>
 </div>
 {% endblock %}

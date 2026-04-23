@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Ajustes{% endblock %}
-{% block header %}Ajustes · Google Drive{% endblock %}
+{% block header %}Ajustes{% endblock %}
 
 {% block content %}
 <div class="max-w-3xl space-y-6">
 
-  <!-- Estado -->
+  <!-- Estado Drive -->
   <div class="card">
     <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
-      <h2 class="font-semibold">Estado de la vinculación</h2>
+      <h2 class="font-semibold">Estado de la vinculación con Google Drive</h2>
       <button id="refresh-status" class="text-xs text-brand-500 hover:underline">refrescar</button>
     </div>
     <div class="p-5 text-sm" id="drive-status">Cargando…</div>
@@ -20,11 +20,9 @@
       <h2 class="font-semibold">Paso 1 · Vincular cuenta de Google</h2>
     </div>
     <div class="p-5 space-y-4 text-sm">
-      <p class="text-slate-400">
-        Conecta tu cuenta de Google Drive directamente desde aquí. No necesitas instalar
-        nada en tu equipo: se te mostrará un código que ingresarás en
-        <code class="text-slate-300">google.com/device</code> desde cualquier navegador
-        (móvil, laptop, la misma pantalla…).
+      <p class="text-[var(--muted)]">
+        Conecta tu cuenta de Google Drive desde aquí. Se muestra un código que ingresas en
+        <code class="mono">google.com/device</code> desde cualquier navegador. No se instala nada en tu equipo.
       </p>
 
       <div class="flex items-center gap-3">
@@ -32,14 +30,14 @@
         <button id="btn-unlink"  class="btn-danger">Desvincular</button>
       </div>
 
-      <details class="bg-slate-950 rounded-md p-3 border border-slate-800">
-        <summary class="cursor-pointer text-slate-400 text-xs">Método avanzado · pegar token JSON de rclone</summary>
+      <details class="bg-[var(--sidebar)] rounded-md p-3 border border-[var(--border)]">
+        <summary class="cursor-pointer text-[var(--muted)] text-xs">Método avanzado · pegar token JSON de rclone</summary>
         <div class="mt-3 space-y-2">
-          <p class="text-slate-400 text-xs">
-            Solo para administradores que ya tienen un token generado con
-            <code>rclone authorize "drive"</code>.
+          <p class="text-[var(--muted)] text-xs">
+            Solo para administradores con un token generado con
+            <code class="mono">rclone authorize "drive"</code>.
           </p>
-          <textarea id="token" rows="3" class="input font-mono text-xs"
+          <textarea id="token" rows="3" class="input mono text-xs"
             placeholder='{"access_token":"ya29...","refresh_token":"1//0...","expiry":"..."}'></textarea>
           <button id="btn-link" class="btn-primary text-xs">Vincular con token pegado</button>
         </div>
@@ -52,36 +50,36 @@
     <div class="modal-panel w-full max-w-md p-6 space-y-4">
       <div class="flex items-start justify-between">
         <h3 class="font-semibold text-lg">Autoriza con Google</h3>
-        <button id="oauth-close" class="text-slate-500 hover:text-slate-200">✕</button>
+        <button id="oauth-close" class="text-[var(--muted)] hover:text-[var(--foreground)]">✕</button>
       </div>
 
-      <ol class="text-sm text-slate-300 space-y-2 list-decimal list-inside">
+      <ol class="text-sm space-y-2 list-decimal list-inside">
         <li>Abre en cualquier navegador: <a id="oauth-url" href="#" target="_blank" rel="noopener"
             class="text-brand-500 underline">google.com/device</a></li>
         <li>Introduce este código:
-          <div class="mt-2 bg-black/60 border border-slate-800 rounded px-3 py-2 flex items-center justify-between">
-            <code id="oauth-code" class="font-mono text-xl tracking-widest text-emerald-400">—</code>
+          <div class="mt-2 bg-[var(--muted-surface)] border border-[var(--border)] rounded px-3 py-2 flex items-center justify-between">
+            <code id="oauth-code" class="mono text-xl tracking-widest">—</code>
             <button id="oauth-copy" class="text-xs text-brand-500 hover:underline">copiar</button>
           </div>
         </li>
-        <li>Autoriza con tu cuenta de Google. Esta ventana se cerrará sola al terminar.</li>
+        <li>Autoriza con tu cuenta. Esta ventana se cerrará sola al terminar.</li>
       </ol>
 
-      <div id="oauth-hint" class="text-xs text-slate-500">Esperando autorización…</div>
+      <div id="oauth-hint" class="text-xs text-[var(--muted)]">Esperando autorización…</div>
     </div>
   </div>
 
-  <!-- Target -->
+  <!-- Target Drive -->
   <div class="card" id="target-card">
     <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
-      <h2 class="font-semibold">Paso 2 · Dónde guardar los snapshots</h2>
+      <h2 class="font-semibold">Paso 2 · Dónde guardar los archivos</h2>
       <button id="btn-refresh-shared" class="text-xs text-brand-500 hover:underline">refrescar unidades</button>
     </div>
     <div class="p-5 space-y-4 text-sm">
       <div class="space-y-2">
         <label class="flex items-center gap-2 cursor-pointer">
           <input type="radio" name="target" value="personal" checked>
-          <span><b>Mi unidad personal</b> (Google Drive personal del usuario vinculado)</span>
+          <span><b>Mi unidad personal</b> (Drive del usuario vinculado)</span>
         </label>
         <label class="flex items-center gap-2 cursor-pointer">
           <input type="radio" name="target" value="shared">
@@ -90,7 +88,7 @@
       </div>
 
       <div id="shared-wrap" class="hidden">
-        <label class="block text-slate-400 mb-1">Selecciona la unidad compartida</label>
+        <label class="block text-[var(--muted)] mb-1">Selecciona la unidad compartida</label>
         <select id="shared-select" class="input">
           <option value="">— cargando —</option>
         </select>
@@ -100,56 +98,27 @@
     </div>
   </div>
 
-  <div class="text-xs text-slate-500">
-    La ruta final dentro del remote es <code class="text-slate-300">snapshots/&lt;hostname&gt;/</code>.
-    Se puede ajustar en <code class="text-slate-300">/opt/snapshot-V3/core/etc/snapshot.conf</code>.
-  </div>
-
-  <!-- Rutas a respaldar + carpeta de Drive -->
+  <!-- Rutas a respaldar -->
   <div class="card" id="config-card">
     <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
-      <h2 class="font-semibold tracking-tight flex items-center gap-2">
-        <svg class="w-4 h-4 text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h4l2-2h6l2 2h4v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v6M9 14h6"/></svg>
-        Rutas y destino
+      <h2 class="font-semibold flex items-center gap-2">
+        Rutas a respaldar
       </h2>
-      <button id="refresh-config" class="text-xs text-brand-400 hover:text-brand-500">refrescar</button>
+      <button id="refresh-config" class="text-xs text-brand-500 hover:underline">refrescar</button>
     </div>
-    <div class="p-5 space-y-5 text-sm">
+    <div class="p-5 space-y-4 text-sm">
       <div>
-        <label class="block text-[11px] uppercase tracking-wider text-[var(--muted)] mb-1">
-          Rutas a respaldar
-        </label>
+        <label class="block text-[11px] uppercase tracking-wider text-[var(--muted)] mb-1">Directorios a incluir</label>
         <textarea id="cfg-paths" rows="5" class="input mono"
           placeholder="/etc&#10;/home&#10;/var/www&#10;/root"></textarea>
         <p class="mt-1.5 text-[11px] text-[var(--muted-2)]">
-          Una ruta absoluta por línea (o separadas por espacios). Sin espacios dentro de cada ruta,
-          sin <code class="mono">..</code>. Estos directorios son los que se enviarán a restic en cada
-          <code class="mono">snapctl create</code>.
+          Una ruta absoluta por línea (o separadas por espacios). Se empaquetan juntas en cada archivo
+          <code class="mono">.tar.zst</code>. Respeta la lista de exclusiones de
+          <code class="mono">/opt/snapshot-V3/core/etc/excludes.list</code>.
         </p>
       </div>
-
-      <div>
-        <label class="block text-[11px] uppercase tracking-wider text-[var(--muted)] mb-1">
-          Carpeta dentro de Drive
-        </label>
-        <input id="cfg-remote-path" class="input mono" placeholder="snapshots/zfsantander">
-        <p class="mt-1.5 text-[11px] text-[var(--muted-2)]">
-          Valor efectivo actual: <code class="mono" id="cfg-remote-effective">—</code>
-          <span id="cfg-hostname-hint"></span>
-        </p>
-        <div class="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-[11px]">
-          <b>Importante:</b> si cambias esta carpeta, restic creará un repositorio nuevo en la
-          nueva ubicación. Los snapshots ya subidos seguirán en la carpeta anterior dentro de tu
-          Drive (podrás volver a verlos aquí restaurando el valor previo). Cámbialo solo en
-          instalación inicial, o si sabes lo que haces.
-        </div>
-      </div>
-
       <div class="flex justify-end">
-        <button id="btn-save-config" class="btn-primary">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          Guardar
-        </button>
+        <button id="btn-save-config" class="btn-primary">Guardar rutas</button>
       </div>
     </div>
   </div>
@@ -157,20 +126,17 @@
   <!-- Backup mensual cold-storage (archive) -->
   <div class="card" id="archive-card">
     <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
-      <h2 class="font-semibold tracking-tight flex items-center gap-2">
-        <svg class="w-4 h-4 text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
-        Backup mensual (archivo comprimido)
+      <h2 class="font-semibold flex items-center gap-2">
+        Backup mensual (taxonomía y encriptación)
       </h2>
-      <button id="refresh-archive" class="text-xs text-brand-400 hover:text-brand-500">refrescar</button>
+      <button id="refresh-archive" class="text-xs text-brand-500 hover:underline">refrescar</button>
     </div>
     <div class="p-5 space-y-5 text-sm">
       <p class="text-[var(--muted)] text-xs">
-        Además de los snapshots restic diarios, el sistema genera el día 1 de cada mes un
-        <b>archivo <code class="mono">.tar.zst</code></b> (opcionalmente encriptado con AES-256) y lo
-        sube a una ruta taxonómica del shared Drive. Pensado para cold storage a largo plazo.
+        El día 1 de cada mes (02:00 UTC) se genera un <code class="mono">.tar.zst</code> con el contenido
+        de las rutas configuradas arriba y se sube al shared Drive en la ruta taxonómica que defines aquí.
       </p>
 
-      <!-- Taxonomía -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
         <label class="block">
           <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Proyecto</span>
@@ -193,35 +159,29 @@
       <label class="block">
         <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Nombre del servidor</span>
         <input id="arch-nombre" class="input mono mt-1" placeholder="(por defecto: hostname)">
-        <p class="mt-1 text-[11px] text-[var(--muted-2)]">Solo letras, dígitos, guiones, puntos y guiones bajos. Se usa en la ruta y el nombre del archivo.</p>
+        <p class="mt-1 text-[11px] text-[var(--muted-2)]">Solo letras, dígitos, guiones, puntos y guiones bajos.</p>
       </label>
 
-      <!-- Ruta efectiva (preview) -->
-      <div class="rounded-lg bg-black/20 border border-[var(--border)] p-3">
+      <div class="rounded-lg bg-[var(--muted-surface)] border border-[var(--border)] p-3">
         <div class="text-[10px] uppercase tracking-wider text-[var(--muted)] mb-1">Ruta efectiva en el shared Drive</div>
-        <div id="arch-path-preview" class="mono text-[11px] text-slate-300 break-all">(configura los campos de arriba)</div>
+        <div id="arch-path-preview" class="mono text-[11px] break-all">(configura los campos de arriba)</div>
       </div>
 
       <div class="flex justify-end">
-        <button id="btn-save-archive" class="btn-primary">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          Guardar taxonomía
-        </button>
+        <button id="btn-save-archive" class="btn-primary">Guardar taxonomía</button>
       </div>
 
-      <!-- Password -->
       <div class="border-t border-[var(--border)] pt-5 mt-3">
-        <h3 class="font-semibold text-slate-100 text-sm mb-1">Contraseña de encriptación</h3>
+        <h3 class="font-semibold text-sm mb-1">Contraseña de encriptación</h3>
         <p class="text-[var(--muted)] text-xs mb-4">
-          Si configuras una password, cada archivo se encripta con <code class="mono">AES-256-CBC + PBKDF2</code>
-          (100 000 iteraciones) antes de subir a Drive. El estado actual es:
+          Con password configurada, cada archivo se encripta con <code class="mono">AES-256-CBC + PBKDF2</code>
+          (100 000 iteraciones) antes de subir. Estado:
           <span id="arch-pwd-state" class="font-mono ml-1"></span>
         </p>
 
-        <div class="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-[11px] mb-4">
+        <div class="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-[11px] mb-4">
           <b>Atención:</b> si cambias la password, los archivos anteriores <b>siguen necesitando la password
-          anterior</b> para descifrarlos. No hay re-encriptación retroactiva. Guarda un registro de las
-          passwords pasadas si conservas archivos viejos.
+          anterior</b>. No hay re-encriptación retroactiva. Guarda un registro de las passwords pasadas.
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -241,80 +201,13 @@
         </label>
 
         <div class="flex items-center justify-between mt-4 gap-2">
-          <button id="btn-clear-archive-pwd" class="btn-secondary text-xs">
-            Quitar encriptación
-          </button>
-          <button id="btn-save-archive-pwd" class="btn-primary">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            Guardar contraseña
-          </button>
+          <button id="btn-clear-archive-pwd" class="btn-secondary text-xs">Quitar encriptación</button>
+          <button id="btn-save-archive-pwd" class="btn-primary">Guardar contraseña</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Sección legacy (restic incremental). Colapsable y oculta por default
-       porque el flujo principal es el archive mensual. Se muestra si algún
-       operador quiere seguir usando la rama restic manualmente. -->
-  <details class="card">
-    <summary class="px-5 py-4 border-b border-[var(--border)] cursor-pointer text-sm text-[var(--muted)] flex items-center justify-between hover:text-slate-100">
-      <span class="flex items-center gap-2">
-        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
-        Avanzado · restic incremental (legacy)
-      </span>
-      <span class="text-[10px] uppercase tracking-wider">mostrar</span>
-    </summary>
-
-    <div class="p-5 space-y-6 text-sm">
-      <p class="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
-        El flujo recomendado es el <b>backup mensual cold-storage</b> (arriba). Estos controles operan
-        sobre el motor restic antiguo, que por default está <b>desactivado</b>. Solo ajústalo si decides
-        re-habilitar los timers <code class="mono">snapshot@create</code> / <code class="mono">snapshot@prune</code>
-        manualmente con <code class="mono">systemctl enable --now</code>.
-      </p>
-
-      <div id="schedule-card">
-        <h3 class="font-semibold text-sm text-slate-200 mb-2">Timers systemd</h3>
-        <div id="schedule-units" class="space-y-6">
-          <div class="text-[var(--muted)] text-xs">Cargando…</div>
-        </div>
-        <button id="refresh-schedule" class="mt-3 text-[11px] text-brand-400 hover:text-brand-500">refrescar</button>
-      </div>
-
-      <div id="retention-card" class="border-t border-[var(--border)] pt-5">
-        <h3 class="font-semibold text-sm text-slate-200 mb-2">Política de retención (restic prune)</h3>
-        <p class="text-[var(--muted)] text-xs mb-3">
-          Cuando se ejecuta <code class="mono">snapctl prune</code> (manual o por timer), se conservan
-          los <b>N</b> snapshots más recientes de cada categoría. <span class="text-rose-400">Operación irreversible.</span>
-        </p>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <label class="block">
-            <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Diarios</span>
-            <input id="ret-daily" type="number" min="0" max="9999" class="input mt-1 mono">
-          </label>
-          <label class="block">
-            <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Semanales</span>
-            <input id="ret-weekly" type="number" min="0" max="9999" class="input mt-1 mono">
-          </label>
-          <label class="block">
-            <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Mensuales</span>
-            <input id="ret-monthly" type="number" min="0" max="9999" class="input mt-1 mono">
-          </label>
-          <label class="block">
-            <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Anuales</span>
-            <input id="ret-yearly" type="number" min="0" max="9999" class="input mt-1 mono">
-          </label>
-        </div>
-        <div class="flex items-center justify-between mt-3">
-          <button id="refresh-retention" class="text-[11px] text-brand-400 hover:text-brand-500">refrescar</button>
-          <button id="btn-save-retention" class="btn-primary">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            Guardar
-          </button>
-        </div>
-      </div>
-    </div>
-  </details>
 </div>
 {% endblock %}
 

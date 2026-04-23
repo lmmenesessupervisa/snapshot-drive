@@ -206,17 +206,12 @@ PIP_QUIET=""
 "$INSTALL_ROOT/.venv/bin/pip" install $PIP_QUIET -r "$INSTALL_ROOT/backend/requirements.txt"
 info "Venv OK ($("$INSTALL_ROOT/.venv/bin/python3" -V))"
 
-bold "[6/8] Inicializando repositorio restic"
-RESTIC_PASS="$STATE_DIR/.restic-pass"
-if [[ -f "$RESTIC_PASS" ]]; then
-    info "Password file ya existe; saltando init."
-else
-    if ! snapctl init; then
-        echo "!! snapctl init falló. Revisa $LOG_DIR/snapctl.log y ejecútalo"
-        echo "!! manualmente: sudo snapctl init"
-        exit 1
-    fi
-fi
+bold "[6/8] Preparando estado local"
+# El motor actual (archive mensual) no usa restic — los archivos .tar.zst
+# se crean en streaming y van directo a Drive. Si algún operador decide
+# re-habilitar el flujo restic legacy, 'snapctl init' sigue disponible
+# y generará /var/lib/snapshot-v3/.restic-pass bajo demanda.
+info "Estado local OK. Archive usa streaming directo a Drive."
 
 bold "[7/8] Instalando unidades systemd"
 install -m 0644 "$INSTALL_ROOT/systemd/snapshot-backend.service"    /etc/systemd/system/
