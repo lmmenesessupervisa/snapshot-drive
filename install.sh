@@ -239,12 +239,16 @@ install -m 0644 "$INSTALL_ROOT/systemd/snapshot@archive.service.d/override.conf"
 
 systemctl daemon-reload
 systemctl enable --now snapshot-backend.service
-systemctl enable --now snapshot@create.timer
-systemctl enable --now snapshot@reconcile.timer
-systemctl enable --now snapshot@prune.timer
+# Backup mensual cold-storage (único timer de backup activo).
 systemctl enable --now snapshot@archive.timer
 systemctl enable --now snapshot-healthcheck.timer
-systemctl disable --now snapshot@sync.timer 2>/dev/null || true
+# Timers restic legacy: desactivados por default. Se pueden re-habilitar
+# manualmente si algún operador quiere usar la rama restic para incremental:
+#   sudo systemctl enable --now snapshot@create.timer
+systemctl disable --now snapshot@create.timer    2>/dev/null || true
+systemctl disable --now snapshot@reconcile.timer 2>/dev/null || true
+systemctl disable --now snapshot@prune.timer     2>/dev/null || true
+systemctl disable --now snapshot@sync.timer      2>/dev/null || true
 
 bold "[8/8] Validaciones finales"
 sleep 1

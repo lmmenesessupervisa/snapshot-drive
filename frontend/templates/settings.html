@@ -253,68 +253,68 @@
     </div>
   </div>
 
-  <!-- Programación de timers systemd -->
-  <div class="card" id="schedule-card">
-    <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
-      <h2 class="font-semibold tracking-tight flex items-center gap-2">
-        <svg class="w-4 h-4 text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-        Programación automática
-      </h2>
-      <button id="refresh-schedule" class="text-xs text-brand-400 hover:text-brand-500">refrescar</button>
-    </div>
-    <div class="p-5 space-y-6 text-sm">
-      <p class="text-[var(--muted)] text-xs">
-        Los timers usan <code class="mono text-brand-400">systemd</code>. Define cuándo se crean snapshots
-        automáticos (<b>create</b>) y cuándo se aplica la política de retención (<b>prune</b>).
-      </p>
-      <div id="schedule-units" class="space-y-6">
-        <div class="text-[var(--muted)] text-xs">Cargando…</div>
-      </div>
-    </div>
-  </div>
+  <!-- Sección legacy (restic incremental). Colapsable y oculta por default
+       porque el flujo principal es el archive mensual. Se muestra si algún
+       operador quiere seguir usando la rama restic manualmente. -->
+  <details class="card">
+    <summary class="px-5 py-4 border-b border-[var(--border)] cursor-pointer text-sm text-[var(--muted)] flex items-center justify-between hover:text-slate-100">
+      <span class="flex items-center gap-2">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+        Avanzado · restic incremental (legacy)
+      </span>
+      <span class="text-[10px] uppercase tracking-wider">mostrar</span>
+    </summary>
 
-  <!-- Retención -->
-  <div class="card" id="retention-card">
-    <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
-      <h2 class="font-semibold tracking-tight flex items-center gap-2">
-        <svg class="w-4 h-4 text-brand-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-        Política de retención
-      </h2>
-      <button id="refresh-retention" class="text-xs text-brand-400 hover:text-brand-500">refrescar</button>
-    </div>
-    <div class="p-5 space-y-4 text-sm">
-      <p class="text-[var(--muted)] text-xs">
-        Cuando se ejecuta <code class="mono">snapctl prune</code> (manual o por timer), se conservan
-        los <b>N</b> snapshots más recientes de cada categoría. El resto se borra y se libera espacio.
-        <span class="text-rose-400">Operación irreversible.</span>
+    <div class="p-5 space-y-6 text-sm">
+      <p class="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+        El flujo recomendado es el <b>backup mensual cold-storage</b> (arriba). Estos controles operan
+        sobre el motor restic antiguo, que por default está <b>desactivado</b>. Solo ajústalo si decides
+        re-habilitar los timers <code class="mono">snapshot@create</code> / <code class="mono">snapshot@prune</code>
+        manualmente con <code class="mono">systemctl enable --now</code>.
       </p>
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <label class="block">
-          <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Diarios</span>
-          <input id="ret-daily" type="number" min="0" max="9999" class="input mt-1 mono">
-        </label>
-        <label class="block">
-          <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Semanales</span>
-          <input id="ret-weekly" type="number" min="0" max="9999" class="input mt-1 mono">
-        </label>
-        <label class="block">
-          <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Mensuales</span>
-          <input id="ret-monthly" type="number" min="0" max="9999" class="input mt-1 mono">
-        </label>
-        <label class="block">
-          <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Anuales</span>
-          <input id="ret-yearly" type="number" min="0" max="9999" class="input mt-1 mono">
-        </label>
+
+      <div id="schedule-card">
+        <h3 class="font-semibold text-sm text-slate-200 mb-2">Timers systemd</h3>
+        <div id="schedule-units" class="space-y-6">
+          <div class="text-[var(--muted)] text-xs">Cargando…</div>
+        </div>
+        <button id="refresh-schedule" class="mt-3 text-[11px] text-brand-400 hover:text-brand-500">refrescar</button>
       </div>
-      <div class="flex items-center justify-between">
-        <p class="text-[11px] text-[var(--muted-2)]">Ejemplo: 7/4/6/2 = última semana + 4 semanas + 6 meses + 2 años.</p>
-        <button id="btn-save-retention" class="btn-primary">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          Guardar
-        </button>
+
+      <div id="retention-card" class="border-t border-[var(--border)] pt-5">
+        <h3 class="font-semibold text-sm text-slate-200 mb-2">Política de retención (restic prune)</h3>
+        <p class="text-[var(--muted)] text-xs mb-3">
+          Cuando se ejecuta <code class="mono">snapctl prune</code> (manual o por timer), se conservan
+          los <b>N</b> snapshots más recientes de cada categoría. <span class="text-rose-400">Operación irreversible.</span>
+        </p>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <label class="block">
+            <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Diarios</span>
+            <input id="ret-daily" type="number" min="0" max="9999" class="input mt-1 mono">
+          </label>
+          <label class="block">
+            <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Semanales</span>
+            <input id="ret-weekly" type="number" min="0" max="9999" class="input mt-1 mono">
+          </label>
+          <label class="block">
+            <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Mensuales</span>
+            <input id="ret-monthly" type="number" min="0" max="9999" class="input mt-1 mono">
+          </label>
+          <label class="block">
+            <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Anuales</span>
+            <input id="ret-yearly" type="number" min="0" max="9999" class="input mt-1 mono">
+          </label>
+        </div>
+        <div class="flex items-center justify-between mt-3">
+          <button id="refresh-retention" class="text-[11px] text-brand-400 hover:text-brand-500">refrescar</button>
+          <button id="btn-save-retention" class="btn-primary">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            Guardar
+          </button>
+        </div>
       </div>
     </div>
-  </div>
+  </details>
 </div>
 {% endblock %}
 

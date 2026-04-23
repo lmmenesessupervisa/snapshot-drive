@@ -30,7 +30,7 @@ ProtectHome=false
 # para que la UI de Ajustes pueda crear/editar drop-ins de timers
 # (snapshot@create.timer.d/override.conf, etc.). Sin esto, cualquier
 # POST a /api/schedule/<unit> falla con "Read-only file system".
-ReadWritePaths=/var/lib/snapshot-v3 /var/log/snapshot-v3 /etc/systemd/system
+ReadWritePaths=/var/lib/snapshot-v3 /var/log/snapshot-v3 /etc/systemd/system /etc/snapshot-v3
 
 [Install]
 WantedBy=multi-user.target
