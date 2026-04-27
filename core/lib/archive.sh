@@ -138,6 +138,12 @@ cmd_archive() {
                "Archivo: ${remote_path} · Tamaño: ${human} · Duración: ${dur}s" \
                "ok" "$_meta"
         write_status_drive "archive" "ok" "$_meta"
+        if declare -F central_send >/dev/null 2>&1; then
+            local _started_at; _started_at="$(date -u -d @"${start_ts}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
+            ENCRYPTED="${encrypted}" central_send "ok" "archive" "os" "linux" \
+                "${HOSTNAME}" "${_started_at}" "${dur}" "${size}" "${size}" "1" \
+                "${remote_path}" "null" || true
+        fi
     else
         log_error "Archive falló rc=$rc (${dur}s)"
         # Intentar limpiar el archivo remoto parcial si se creó
@@ -151,6 +157,12 @@ cmd_archive() {
                "Ruta destino: ${remote_path} · rc=${rc} · Duración: ${dur}s" \
                "fail" "$_meta"
         write_status_drive "archive" "fail" "$_meta"
+        if declare -F central_send >/dev/null 2>&1; then
+            local _started_at; _started_at="$(date -u -d @"${start_ts}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
+            ENCRYPTED="${encrypted}" central_send "fail" "archive" "os" "linux" \
+                "${HOSTNAME}" "${_started_at}" "${dur}" "0" "0" "0" \
+                "${remote_path}" "\"pipe rc=${rc}\"" || true
+        fi
         return "$rc"
     fi
 }
