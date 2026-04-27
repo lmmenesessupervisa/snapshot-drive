@@ -27,6 +27,7 @@ FRONTEND_PORT="${FRONTEND_PORT:-5071}"
 : "${RCLONE_VERSION:=v1.68.2}"
 
 ASSUME_YES=0
+CENTRAL_MODE=0
 
 usage() {
     cat <<EOF
@@ -53,6 +54,7 @@ EOF
 for arg in "$@"; do
     case "$arg" in
         -y|--yes) ASSUME_YES=1 ;;
+        --central) CENTRAL_MODE=1 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Flag desconocida: $arg"; usage; exit 1 ;;
     esac
@@ -299,6 +301,59 @@ EOF
     fi
 else
     info "Admin existente: $EXISTING_ADMINS — no se crea uno nuevo."
+fi
+
+if [[ $CENTRAL_MODE -eq 1 ]]; then
+    bold "[8.5/9] Configurando modo CENTRAL"
+    # Setear MODE=central en local.conf si no está ya
+    if ! grep -q '^MODE=' "$LOCAL_CONF" 2>/dev/null; then
+        echo 'MODE="central"' >> "$LOCAL_CONF"
+        info "MODE=central agregado a $LOCAL_CONF"
+    else
+        sed -i 's/^MODE=.*/MODE="central"/' "$LOCAL_CONF"
+        info "MODE actualizado a central en $LOCAL_CONF"
+    fi
+    # En central no corre el archive timer del cliente
+    systemctl disable --now snapshot@archive.timer 2>/dev/null || true
+    systemctl restart snapshot-backend
+    sleep 1
+    # Crear cliente demo + token la primera vez
+    if "$INSTALL_ROOT/.venv/bin/python" -c "
+from backend.config import Config
+from backend.models.db import DB
+from backend.central import models
+db = DB(Config.DB_PATH)
+import sqlite3
+c = sqlite3.connect(str(Config.DB_PATH))
+n = c.execute('SELECT COUNT(*) FROM clients').fetchone()[0]
+exit(0 if n == 0 else 1)
+" 2>/dev/null; then
+        info "Creando cliente demo + token inicial..."
+        "$INSTALL_ROOT/.venv/bin/python" -c "
+import sqlite3, sys
+from backend.config import Config
+from backend.models.db import DB
+from backend.central import models, tokens
+DB(Config.DB_PATH)
+c = sqlite3.connect(str(Config.DB_PATH), isolation_level=None)
+cid = models.create_client(c, proyecto='demo')
+plain, _ = tokens.issue(c, cid, label='demo-host')
+print(f'CLIENT demo creado (id={cid}).')
+print(f'TOKEN (guardar AHORA — no se vuelve a mostrar):')
+print(f'  {plain}')
+"
+    else
+        info "Ya existen clientes — se conserva la lista actual."
+    fi
+    cat <<EOF
+─────────────────────────────────────────────────
+Snippet de Caddy para central.tu-dominio.com:
+
+central.tu-dominio.com {
+  reverse_proxy 127.0.0.1:5070
+}
+─────────────────────────────────────────────────
+EOF
 fi
 
 bold "[9/9] Validaciones finales"
