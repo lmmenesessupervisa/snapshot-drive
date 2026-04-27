@@ -7,6 +7,7 @@ o (systemd): /usr/bin/python3 /opt/snapshot-V3/backend/app.py
 import logging
 import logging.handlers
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -17,27 +18,34 @@ if str(ROOT) not in sys.path:
 
 from flask import Flask, jsonify  # noqa: E402
 
-from backend.config import Config  # noqa: E402
+from backend.auth import auth_bp  # noqa: E402
+from backend.auth.middleware import install_auth_middleware  # noqa: E402
+from backend.auth.migrations import apply_migrations  # noqa: E402
+from backend.config import Config, load_secret_key  # noqa: E402
 from backend.models.db import DB  # noqa: E402
 from backend.routes.api import api_bp  # noqa: E402
 from backend.routes.audit import audit_bp  # noqa: E402
 from backend.routes.web import web_bp  # noqa: E402
 from backend.services.snapctl import SnapctlService  # noqa: E402
 
+def _test_mode() -> bool:
+    return os.getenv("SNAPSHOT_TEST_MODE") == "1"
+
 
 def _setup_logging():
-    Config.LOG_DIR.mkdir(parents=True, exist_ok=True)
     fmt = logging.Formatter(
         '{"ts":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}'
     )
     root = logging.getLogger()
     root.setLevel(logging.INFO)
 
-    fh = logging.handlers.RotatingFileHandler(
-        Config.LOG_FILE, maxBytes=5_000_000, backupCount=5
-    )
-    fh.setFormatter(fmt)
-    root.addHandler(fh)
+    if not _test_mode():
+        Config.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        fh = logging.handlers.RotatingFileHandler(
+            Config.LOG_FILE, maxBytes=5_000_000, backupCount=5
+        )
+        fh.setFormatter(fmt)
+        root.addHandler(fh)
 
     sh = logging.StreamHandler()
     sh.setFormatter(fmt)
@@ -54,10 +62,24 @@ def create_app() -> Flask:
     )
     app.config["SECRET_KEY"] = Config.SECRET_KEY
 
-    db = DB(Config.DB_PATH)
+    # Resolve DB path: SNAPSHOT_DB_PATH env (set by tests) overrides Config.DB_PATH
+    db_path = Path(os.getenv("SNAPSHOT_DB_PATH") or Config.DB_PATH)
+    app.config["DB_PATH"] = db_path
+
+    db = DB(db_path)
     svc = SnapctlService(db=db, bin_path=Config.SNAPCTL_BIN, timeout=Config.SNAPCTL_TIMEOUT)
     app.config["DB"] = db
     app.config["SNAPCTL_SVC"] = svc
+
+    # --- Auth bootstrap ---
+    app.config["SECRET_KEY_BYTES"] = load_secret_key()
+    auth_conn = sqlite3.connect(str(db_path), check_same_thread=False, isolation_level=None)
+    auth_conn.execute("PRAGMA journal_mode=WAL")
+    apply_migrations(auth_conn)
+    app.config["DB_CONN"] = auth_conn
+
+    install_auth_middleware(app)
+    app.register_blueprint(auth_bp, url_prefix="/auth")
 
     app.register_blueprint(api_bp)
     app.register_blueprint(web_bp)
@@ -81,7 +103,8 @@ def create_app() -> Flask:
     return app
 
 
-app = create_app()
+if not _test_mode():
+    app = create_app()
 
 
 if __name__ == "__main__":
