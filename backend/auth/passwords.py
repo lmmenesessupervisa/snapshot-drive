@@ -57,3 +57,18 @@ def validate_policy(password: str, *, email: str, display_name: str) -> None:
         raise PolicyError(
             f"password too weak (strength {score}/4, need {MIN_ZXCVBN_SCORE})"
         )
+
+
+# ---------------------------------------------------------------------------
+# Task 7: Password history check
+# ---------------------------------------------------------------------------
+HISTORY_DEPTH = 5
+
+
+def check_history(password: str, history_hashes: list[str]) -> None:
+    """Raises PolicyError if password matches any of the recent N hashes."""
+    for h in history_hashes[:HISTORY_DEPTH]:
+        if verify_password(password, h):
+            raise PolicyError(
+                f"password must differ from your last {HISTORY_DEPTH} passwords"
+            )

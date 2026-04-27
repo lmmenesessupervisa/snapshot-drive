@@ -52,3 +52,26 @@ def test_contains_display_name():
 
 def test_strong_passes():
     validate_policy("Tr0ub4dor&3-mighty-stallion", email="a@b.c", display_name="A")
+
+
+# ---------------------------------------------------------------------------
+# Task 7: Password history check
+# ---------------------------------------------------------------------------
+from backend.auth.passwords import check_history, HISTORY_DEPTH
+
+
+def test_history_rejects_match():
+    h1 = hash_password("Password-A-very-long-12345")
+    h2 = hash_password("Password-B-very-long-67890")
+    history = [h1, h2]
+    with pytest.raises(PolicyError):
+        check_history("Password-A-very-long-12345", history)
+
+
+def test_history_allows_new():
+    h = hash_password("Old-password-very-long-12345")
+    check_history("Brand-new-different-string-99", [h])
+
+
+def test_history_depth_constant():
+    assert HISTORY_DEPTH == 5
