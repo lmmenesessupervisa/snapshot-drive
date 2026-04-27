@@ -121,6 +121,16 @@ Comandos de Drive:
   drive-shared-list                    Lista unidades compartidas
   drive-target personal|shared <id>    Cambia destino
 
+USERS / AUTH (root only)
+  admin list                          listar usuarios
+  admin create --email X --role R     crear usuario
+  admin set-role --email X --role R   cambiar rol
+  admin reset-password --email X      generar password nueva
+  admin disable --email X
+  admin enable --email X
+  admin revoke-sessions --email X
+  admin reset-mfa --email X
+
   help                       Muestra esta ayuda
 EOF
 }
@@ -683,6 +693,10 @@ main() {
         archive-restore)   cmd_archive_restore "$@" ;;
         archive-prune)     cmd_archive_prune   "$@" ;;
         archive-paths)     cmd_archive_paths   "$@" ;;
+        admin)
+            exec "${SNAPSHOT_ROOT}/.venv/bin/python" \
+                -m backend.auth.admin_cli "$@"
+            ;;
         help|-h|--help)    usage ;;
         *) usage; exit 1 ;;
     esac

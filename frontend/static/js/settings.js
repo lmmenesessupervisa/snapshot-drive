@@ -70,7 +70,7 @@ async function pollOauth() {
     return;
   }
   try {
-    const resp = await fetch('/api/drive/oauth/device/poll', {
+    const resp = await apiFetch('/api/drive/oauth/device/poll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ device_code: oauthState.deviceCode }),
@@ -274,7 +274,7 @@ $('btn-save-archive-pwd').onclick = async () => {
 $('btn-clear-archive-pwd').onclick = async () => {
   if (!confirm('Quitar la encriptación significa que los próximos archivos se subirán en CLARO a Drive. Los archivos viejos encriptados seguirán necesitando la password anterior. ¿Continuar?')) return;
   try {
-    await fetch('/api/archive/password', { method: 'DELETE', credentials: 'same-origin' });
+    await apiFetch('/api/archive/password', { method: 'DELETE', credentials: 'same-origin' });
     toast('Encriptación desactivada', 'success');
     $('arch-pwd').value = '';
     $('arch-pwd-confirm').value = '';

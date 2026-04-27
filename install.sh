@@ -85,7 +85,7 @@ case "$ARCH" in
         ;;
 esac
 
-bold "[1/8] Verificando tooling mínimo del sistema"
+bold "[1/9] Verificando tooling mínimo del sistema"
 for t in curl tar python3 rsync; do
     if ! command -v "$t" >/dev/null 2>&1; then
         echo "!! Falta '$t'. Instálalo con:   sudo apt-get install -y $t"
@@ -95,11 +95,11 @@ for t in curl tar python3 rsync; do
 done
 info "curl, tar, python3, rsync presentes."
 
-bold "[2/8] Directorios del proyecto"
+bold "[2/9] Directorios del proyecto"
 install -d -m 0750 "$INSTALL_ROOT" "$STATE_DIR" "$LOG_DIR"
 install -d -m 0755 "$BUNDLE_DIR/bin"
 
-bold "[3/8] Desplegando archivos en $INSTALL_ROOT"
+bold "[3/9] Desplegando archivos en $INSTALL_ROOT"
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 # --exclude 'bundle': los binarios bundled viven DENTRO de INSTALL_ROOT
 # pero NO están en git. Sin el exclude, rsync --delete los borraría.
@@ -124,7 +124,19 @@ else
     info "Override local conservado: $LOCAL_CONF"
 fi
 
-bold "[4/8] Descargando binarios standalone a $BUNDLE_DIR"
+# Generate SECRET_KEY if empty
+if ! grep -qE '^SECRET_KEY="[a-f0-9]{64}"' "$LOCAL_CONF"; then
+    NEW_KEY="$(openssl rand -hex 32)"
+    if grep -qE '^SECRET_KEY=' "$LOCAL_CONF"; then
+        sed -i "s|^SECRET_KEY=.*|SECRET_KEY=\"$NEW_KEY\"|" "$LOCAL_CONF"
+    else
+        echo "SECRET_KEY=\"$NEW_KEY\"" >> "$LOCAL_CONF"
+    fi
+    info "SECRET_KEY generado en $LOCAL_CONF"
+fi
+chmod 600 "$LOCAL_CONF"
+
+bold "[4/9] Descargando binarios standalone a $BUNDLE_DIR"
 
 PYTHON_TARBALL="cpython-${PYTHON_VERSION}+${PYTHON_PBS_DATE}-${PYTHON_PLATFORM}-install_only.tar.gz"
 PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PYTHON_PBS_DATE}/${PYTHON_TARBALL}"
@@ -198,7 +210,7 @@ else
     info "rclone bundled ya presente: $(_rclone_bundled_ver)"
 fi
 
-bold "[5/8] Virtualenv Python (contra el Python bundled) y deps backend"
+bold "[5/9] Virtualenv Python (contra el Python bundled) y deps backend"
 "$BUNDLE_DIR/python/bin/python3" -m venv --clear "$INSTALL_ROOT/.venv"
 PIP_QUIET=""
 [[ $ASSUME_YES -eq 1 ]] && PIP_QUIET="--quiet"
@@ -206,14 +218,14 @@ PIP_QUIET=""
 "$INSTALL_ROOT/.venv/bin/pip" install $PIP_QUIET -r "$INSTALL_ROOT/backend/requirements.txt"
 info "Venv OK ($("$INSTALL_ROOT/.venv/bin/python3" -V))"
 
-bold "[6/8] Preparando estado local"
+bold "[6/9] Preparando estado local"
 # El motor actual (archive mensual) no usa restic — los archivos .tar.zst
 # se crean en streaming y van directo a Drive. Si algún operador decide
 # re-habilitar el flujo restic legacy, 'snapctl init' sigue disponible
 # y generará /var/lib/snapshot-v3/.restic-pass bajo demanda.
 info "Estado local OK. Archive usa streaming directo a Drive."
 
-bold "[7/8] Instalando unidades systemd"
+bold "[7/9] Instalando unidades systemd"
 install -m 0644 "$INSTALL_ROOT/systemd/snapshot-backend.service"    /etc/systemd/system/
 install -m 0644 "$INSTALL_ROOT/systemd/snapshot@.service"           /etc/systemd/system/
 install -m 0644 "$INSTALL_ROOT/systemd/snapshot@.timer"             /etc/systemd/system/
@@ -245,7 +257,51 @@ systemctl disable --now snapshot@reconcile.timer 2>/dev/null || true
 systemctl disable --now snapshot@prune.timer     2>/dev/null || true
 systemctl disable --now snapshot@sync.timer      2>/dev/null || true
 
-bold "[8/8] Validaciones finales"
+bold "[8/9] Crear primer usuario admin"
+ADMIN_CRED_FILE="/root/.snapshot-v3-admin-credentials"
+
+# Detect if at least one admin exists already.
+EXISTING_ADMINS="$(
+    cd "$INSTALL_ROOT" && \
+    "$INSTALL_ROOT/.venv/bin/python" -m backend.auth.admin_cli list 2>/dev/null \
+        | awk 'NR>1 && $3=="admin"{print $2}'
+)" || true
+
+if [[ -z "${EXISTING_ADMINS:-}" ]]; then
+    if [[ $ASSUME_YES -eq 1 ]]; then
+        ADMIN_EMAIL="admin@$(hostname -s)"
+        ADMIN_PWD="$(openssl rand -base64 18 | tr -d '=+/' | cut -c1-24)"
+    else
+        read -rp "  Email del admin: " ADMIN_EMAIL
+        ADMIN_PWD="$(openssl rand -base64 18 | tr -d '=+/' | cut -c1-24)"
+    fi
+    (cd "$INSTALL_ROOT" && \
+     "$INSTALL_ROOT/.venv/bin/python" -m backend.auth.admin_cli create \
+        --email "$ADMIN_EMAIL" --display "Admin" --role admin \
+        --password "$ADMIN_PWD" >/dev/null)
+    if [[ $ASSUME_YES -eq 1 ]]; then
+        umask 077
+        cat > "$ADMIN_CRED_FILE" <<EOF
+email: $ADMIN_EMAIL
+password: $ADMIN_PWD
+EOF
+        chmod 0600 "$ADMIN_CRED_FILE"
+        info "Admin creado. Credenciales en $ADMIN_CRED_FILE (0600)."
+    else
+        cat <<EOF
+
+  ✔  Admin creado: $ADMIN_EMAIL
+  ✔  Password (24 chars): $ADMIN_PWD
+  ⚠  ANOTALA — no se vuelve a mostrar.
+  ⚠  Tu primer login te pedirá configurar MFA (obligatorio para admin).
+
+EOF
+    fi
+else
+    info "Admin existente: $EXISTING_ADMINS — no se crea uno nuevo."
+fi
+
+bold "[9/9] Validaciones finales"
 sleep 1
 if curl -fsS "http://127.0.0.1:${API_PORT}/api/health" >/dev/null; then
     info "API UP en http://127.0.0.1:${API_PORT}"

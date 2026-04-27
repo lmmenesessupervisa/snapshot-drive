@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>snapshot-V3 · Iniciar sesión</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui'], mono: ['JetBrains Mono','ui-monospace'] },
+          colors: { brand: { 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1' } },
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="h-full font-sans antialiased flex items-center justify-center">
+  <div class="w-full max-w-md p-8 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="brand-logo">S</div>
+      <div>
+        <div class="font-semibold tracking-tight text-lg">snapshot-V3</div>
+        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">backup manager</div>
+      </div>
+    </div>
+    <h1 class="text-xl font-semibold mb-4">Iniciar sesión</h1>
+    <form id="login-form" class="space-y-4">
+      <div>
+        <label class="block text-sm mb-1">Email</label>
+        <input name="email" type="email" required autofocus autocomplete="email"
+               class="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm">
+      </div>
+      <div>
+        <label class="block text-sm mb-1">Contraseña</label>
+        <input name="password" type="password" required autocomplete="current-password"
+               class="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm">
+      </div>
+      <div id="mfa-block" class="hidden">
+        <label class="block text-sm mb-1">Código MFA</label>
+        <input name="mfa_code" type="text" autocomplete="one-time-code" inputmode="numeric"
+               placeholder="6 dígitos o código de respaldo"
+               class="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm font-mono">
+      </div>
+      <button type="submit"
+              class="w-full rounded bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 text-sm font-medium">
+        Entrar
+      </button>
+      <p id="login-error" class="hidden text-sm text-rose-400"></p>
+    </form>
+  </div>
+<script>
+document.getElementById("login-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(e.target));
+  const r = await fetch("/auth/login", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(data),
+  });
+  let j = {};
+  try { j = await r.json(); } catch {}
+  if (!r.ok) {
+    const p = document.getElementById("login-error");
+    p.textContent = j.error || "Error al iniciar sesión";
+    p.classList.remove("hidden");
+    return;
+  }
+  if (j.require_mfa) {
+    document.getElementById("mfa-block").classList.remove("hidden");
+    document.querySelector('[name="mfa_code"]').focus();
+    return;
+  }
+  if (j.require_mfa_enroll) {
+    sessionStorage.setItem("enroll_email", data.email);
+    sessionStorage.setItem("enroll_password", data.password);
+    window.location = "/auth/mfa-enroll";
+    return;
+  }
+  window.location = "/";
+});
+</script>
+</body>
+</html>

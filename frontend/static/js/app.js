@@ -1,7 +1,11 @@
 // Cliente compartido: fetch + toasts + helpers
 const API = {
+  _csrf() {
+    const m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.getAttribute('content') : '';
+  },
   async req(method, path, body) {
-    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    const opts = { method, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': API._csrf() } };
     if (body !== undefined) opts.body = JSON.stringify(body);
     const r = await fetch('/api' + path, opts);
     let j = {};

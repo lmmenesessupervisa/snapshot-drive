@@ -47,7 +47,12 @@ class Config:
     # Timeout para subprocess snapctl (segundos)
     SNAPCTL_TIMEOUT = int(os.getenv("SNAPCTL_TIMEOUT", "3600"))
 
-    SECRET_KEY = os.getenv("SNAPSHOT_SECRET", "change-me-in-production")
+    # NOTE: this is no longer used by Flask. backend/app.py derives Flask's
+    # SECRET_KEY from load_secret_key() via HKDF so there's a single source of
+    # truth (the master in /etc/snapshot-v3/snapshot.local.conf or
+    # SNAPSHOT_SECRET_KEY env). Kept here only for code that still imports
+    # Config.SECRET_KEY directly; do not add new readers.
+    SECRET_KEY = os.getenv("SNAPSHOT_SECRET", "")
 
     # Google OAuth (Device Flow) — leídos de snapshot.conf, overrideables por env
     GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID") or _CONF.get("GOOGLE_CLIENT_ID", "")
@@ -82,3 +87,46 @@ class Config:
     BACKUP_PAIS     = _CONF.get("BACKUP_PAIS", "")
     BACKUP_NOMBRE   = _CONF.get("BACKUP_NOMBRE", "")
     ARCHIVE_KEEP_MONTHS = int(_CONF.get("ARCHIVE_KEEP_MONTHS", "12") or 12)
+
+
+# --- Auth ---
+import secrets
+
+SESSION_TTL_HOURS = int(os.environ.get("SESSION_TTL_HOURS", 8))
+IDLE_TIMEOUT_MINUTES = int(os.environ.get("IDLE_TIMEOUT_MINUTES", 60))
+MFA_REQUIRED_ROLES = ("admin",)
+
+
+def load_secret_key() -> bytes:
+    """Load 32-byte SECRET_KEY from snapshot.local.conf or env.
+
+    Order of precedence:
+      1. SNAPSHOT_SECRET_KEY env var (hex, 64 chars).
+      2. /etc/snapshot-v3/snapshot.local.conf line `SECRET_KEY="..."`.
+      3. /var/lib/snapshot-v3/.secret_key (auto-generated, 0600).
+    """
+    env_val = os.environ.get("SNAPSHOT_SECRET_KEY")
+    if env_val:
+        return bytes.fromhex(env_val)
+
+    local_conf = "/etc/snapshot-v3/snapshot.local.conf"
+    if os.path.exists(local_conf):
+        with open(local_conf) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("SECRET_KEY="):
+                    val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    if val:
+                        return bytes.fromhex(val)
+
+    fallback = "/var/lib/snapshot-v3/.secret_key"
+    if os.path.exists(fallback):
+        with open(fallback) as f:
+            return bytes.fromhex(f.read().strip())
+    # Generate one
+    key = secrets.token_hex(32)
+    os.makedirs(os.path.dirname(fallback), exist_ok=True)
+    with open(fallback, "w") as f:
+        f.write(key)
+    os.chmod(fallback, 0o600)
+    return bytes.fromhex(key)

@@ -245,7 +245,7 @@ async function fetchStatus(force = false) {
 
 async function hardRefresh() {
   try {
-    await fetch("/audit/api/refresh", { method: "POST", credentials: "same-origin" });
+    await apiFetch("/audit/api/refresh", { method: "POST", credentials: "same-origin" });
   } catch {}
   Cache.invalidate("audit:");
   await fetchStatus(true);
