@@ -16,6 +16,8 @@ source "${SNAPSHOT_ROOT}/core/lib/common.sh"
 source "${SNAPSHOT_ROOT}/core/lib/drive.sh"
 # shellcheck disable=SC1091
 source "${SNAPSHOT_ROOT}/core/lib/archive.sh"
+# shellcheck disable=SC1091
+[[ -f "${SNAPSHOT_ROOT}/core/lib/central.sh" ]] && source "${SNAPSHOT_ROOT}/core/lib/central.sh"
 
 trap 'log_error "snapctl interrumpido en línea $LINENO"; exit 1' ERR
 trap '_release_on_abort' INT TERM
@@ -696,6 +698,16 @@ main() {
         admin)
             exec "${SNAPSHOT_ROOT}/.venv/bin/python" \
                 -m backend.auth.admin_cli "$@"
+            ;;
+        central)
+            local sub="${1:-status}"; shift || true
+            local pybin="${SNAPSHOT_ROOT}/.venv/bin/python"
+            case "$sub" in
+                send)             "$pybin" -m backend.central.cli send "$@" ;;
+                drain|drain-queue) "$pybin" -m backend.central.cli drain ;;
+                status)           "$pybin" -m backend.central.cli status ;;
+                *) echo "snapctl central {send <file>|drain-queue|status}" >&2; exit 2 ;;
+            esac
             ;;
         help|-h|--help)    usage ;;
         *) usage; exit 1 ;;
