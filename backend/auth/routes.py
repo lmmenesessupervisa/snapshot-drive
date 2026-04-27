@@ -527,3 +527,22 @@ def reset_mfa_route(uid: int):
         detail={"by": g.current_user.email},
     )
     return jsonify(ok=True)
+
+
+def register_rate_limits(app):
+    """Apply Flask-Limiter rules to auth endpoints. Called from app.py
+    AFTER the blueprint is registered so the view functions are bound.
+
+    Flask-Limiter 4.x requires that the decorated function is the one
+    stored in app.view_functions — simply calling limiter.limit()(fn)
+    without replacing the view function entry does not enforce limits
+    during the before_request middleware pass. We replace each entry
+    directly so the limiter's decorator wraps the actual callable that
+    Flask will invoke.
+    """
+    limiter = app.config.get("LIMITER")
+    if not limiter:
+        return
+    app.view_functions["auth.login"] = limiter.limit("10/minute")(login)
+    app.view_functions["auth.reset_request"] = limiter.limit("3/minute;30/hour")(reset_request)
+    app.view_functions["auth.mfa_enroll_confirm"] = limiter.limit("5/minute")(mfa_enroll_confirm)

@@ -17,6 +17,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from flask import Flask, jsonify  # noqa: E402
+from flask_limiter import Limiter  # noqa: E402
+from flask_limiter.util import get_remote_address  # noqa: E402
 
 from backend.auth import auth_bp  # noqa: E402
 from backend.auth.middleware import install_auth_middleware  # noqa: E402
@@ -79,7 +81,19 @@ def create_app() -> Flask:
     app.config["DB_CONN"] = auth_conn
 
     install_auth_middleware(app)
+
+    limiter = Limiter(
+        key_func=get_remote_address,
+        storage_uri="memory://",
+        default_limits=[],
+    )
+    limiter.init_app(app)
+    app.config["LIMITER"] = limiter
+
     app.register_blueprint(auth_bp, url_prefix="/auth")
+
+    from .auth.routes import register_rate_limits
+    register_rate_limits(app)
 
     app.register_blueprint(api_bp)
     app.register_blueprint(web_bp)
