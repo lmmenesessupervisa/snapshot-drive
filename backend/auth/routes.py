@@ -241,9 +241,20 @@ def mfa_enroll_start():
     password = payload.get("password") or ""
     db = _db()
     user = users_mod.get_user_by_email(db, email) if email else None
-    if not user or user.status != "active" \
-            or not verify_password(password, user.password_hash):
+
+    if not user:
+        # equalize timing with verify
+        verify_password(password, DUMMY_HASH)
         return jsonify(ok=False, error="invalid credentials"), 401
+
+    if user.status != "active" or lockout.is_locked(db, user.id):
+        verify_password(password, DUMMY_HASH)
+        return jsonify(ok=False, error="invalid credentials"), 401
+
+    if not verify_password(password, user.password_hash):
+        lockout.record_failure(db, user.id)
+        return jsonify(ok=False, error="invalid credentials"), 401
+
     if user.mfa_secret:
         return jsonify(ok=False, error="already enrolled"), 400
     secret = mfa_mod.generate_totp_secret()
@@ -263,8 +274,18 @@ def mfa_enroll_confirm():
     code = payload.get("code") or ""
     db = _db()
     user = users_mod.get_user_by_email(db, email) if email else None
-    if not user or user.status != "active" \
-            or not verify_password(password, user.password_hash):
+
+    if not user:
+        # equalize timing with verify
+        verify_password(password, DUMMY_HASH)
+        return jsonify(ok=False, error="invalid credentials"), 401
+
+    if user.status != "active" or lockout.is_locked(db, user.id):
+        verify_password(password, DUMMY_HASH)
+        return jsonify(ok=False, error="invalid credentials"), 401
+
+    if not verify_password(password, user.password_hash):
+        lockout.record_failure(db, user.id)
         return jsonify(ok=False, error="invalid credentials"), 401
     if user.mfa_secret:
         return jsonify(ok=False, error="already enrolled"), 400
@@ -545,4 +566,5 @@ def register_rate_limits(app):
         return
     app.view_functions["auth.login"] = limiter.limit("10/minute")(login)
     app.view_functions["auth.reset_request"] = limiter.limit("3/minute;30/hour")(reset_request)
+    app.view_functions["auth.mfa_enroll_start"] = limiter.limit("5/minute")(mfa_enroll_start)
     app.view_functions["auth.mfa_enroll_confirm"] = limiter.limit("5/minute")(mfa_enroll_confirm)

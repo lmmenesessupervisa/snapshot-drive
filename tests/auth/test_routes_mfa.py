@@ -73,6 +73,19 @@ def test_enroll_confirm_wrong_code(app):
     assert r2.status_code == 400
 
 
+def test_enroll_start_lockout_after_5_fails(app):
+    c, db = _admin_login(app)
+    for _ in range(5):
+        c.post("/auth/mfa/enroll/start", json={
+            "email": "a@x.com", "password": "wrong-bad-password",
+        })
+    # Now even with the correct password, locked
+    r = c.post("/auth/mfa/enroll/start", json={
+        "email": "a@x.com", "password": "AdminPass-456-Y",
+    })
+    assert r.status_code == 401
+
+
 def test_login_after_enroll_requires_mfa(app):
     c, db = _admin_login(app)
     r = c.post("/auth/mfa/enroll/start",
