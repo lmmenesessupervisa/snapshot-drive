@@ -225,6 +225,7 @@ def password_change():
 
 
 from . import mfa as mfa_mod
+from . import reset_tokens
 
 
 @auth_bp.post("/mfa/enroll/start")
@@ -286,3 +287,85 @@ def mfa_enroll_confirm():
     ))
     _set_session_cookie(resp, s.id)
     return resp
+
+
+def _send_reset_email(email: str, token: str) -> None:
+    """Best-effort email send. Fails silently in tests/no SMTP."""
+    cfg = current_app.config
+    host = cfg.get("SMTP_HOST") or ""
+    if not host:
+        return
+    import smtplib
+    from email.message import EmailMessage
+    msg = EmailMessage()
+    msg["Subject"] = "snapshot-V3 — restablecer contraseña"
+    msg["From"] = cfg.get("SMTP_FROM", "snapshot-v3@localhost")
+    msg["To"] = email
+    base = cfg.get("PUBLIC_BASE_URL", "")
+    msg.set_content(
+        f"Para restablecer tu contraseña abrí:\n\n"
+        f"{base}/auth/reset?token={token}\n\n"
+        f"El enlace expira en 1 hora."
+    )
+    try:
+        with smtplib.SMTP(host, int(cfg.get("SMTP_PORT", 587))) as s:
+            s.starttls()
+            user = cfg.get("SMTP_USER")
+            pwd = cfg.get("SMTP_PASSWORD")
+            if user:
+                s.login(user, pwd or "")
+            s.send_message(msg)
+    except Exception as e:
+        current_app.logger.warning("reset email failed: %s", e)
+
+
+@auth_bp.post("/reset-request")
+def reset_request():
+    payload = request.get_json(silent=True) or {}
+    email = (payload.get("email") or "").strip().lower()
+    db = _db()
+    ip, ua = _client_meta()
+    user = users_mod.get_user_by_email(db, email) if email else None
+    if user and user.status == "active":
+        token = reset_tokens.create_reset_token(db, user.id)
+        audit_mod.write_event(
+            db, actor="web", event="reset_request", user_id=user.id,
+            email=email, ip=ip, user_agent=ua,
+        )
+        _send_reset_email(user.email, token)
+    return jsonify(ok=True)
+
+
+@auth_bp.post("/reset-consume")
+def reset_consume():
+    payload = request.get_json(silent=True) or {}
+    token = payload.get("token") or ""
+    new = payload.get("new_password") or ""
+    db = _db()
+    user_id = reset_tokens.consume_reset_token(db, token)
+    if user_id is None:
+        return jsonify(ok=False, error="invalid or expired token"), 400
+    user = users_mod.get_user_by_id(db, user_id)
+    if not user:
+        return jsonify(ok=False, error="invalid token"), 400
+    try:
+        validate_policy(new, email=user.email, display_name=user.display_name)
+    except PolicyError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    history = users_mod.get_password_history(db, user.id)
+    try:
+        check_history(new, history)
+    except PolicyError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    users_mod.update_password(db, user.id, hash_password(new))
+    sess.revoke_user_sessions(db, user.id)
+    ip, ua = _client_meta()
+    audit_mod.write_event(
+        db, actor="web", event="reset_consume", user_id=user.id,
+        email=user.email, ip=ip, user_agent=ua,
+    )
+    audit_mod.write_event(
+        db, actor="web", event="pwd_change", user_id=user.id,
+        email=user.email, ip=ip, user_agent=ua,
+    )
+    return jsonify(ok=True)
