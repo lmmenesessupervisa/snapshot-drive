@@ -319,6 +319,106 @@ con sus backup codes (o `snapctl admin reset-mfa`).
 `install.sh` la genera automáticamente; backupéala junto al resto
 del archivo de config local.
 
+## Modo central (deploy dual)
+
+snapshot-V3 soporta dos modos de despliegue:
+
+- **`MODE=client`** (default): el deploy tradicional. Corre el `archive`
+  mensual, sube a Drive, no recibe nada de otros hosts.
+- **`MODE=central`**: subdominio agregador. **No** corre `archive`, pero
+  **sí** acepta heartbeats de otros hosts vía `POST /api/v1/heartbeat`,
+  y muestra un dashboard agregado por proyecto/cliente.
+
+### Arquitectura
+
+```
+┌──────────────┐  POST /api/v1/heartbeat   ┌────────────────────┐
+│  Host cliente │ ─────────────────────────▶│  central.dominio   │
+│  MODE=client  │  Bearer <token>           │  MODE=central      │
+│  + central.sh │                           │  + dashboard agreg │
+└──────────────┘                           └────────────────────┘
+       │                                              │
+       │ tar│zstd│rclone (archive mensual a Drive)    │
+       ▼                                              │
+┌──────────────┐                                      │
+│ Google Drive │ ◀────── audit / status agreg ────────┘
+└──────────────┘
+```
+
+### Bootstrap del central
+
+```bash
+sudo bash install.sh --central
+```
+
+Esto:
+
+1. Setea `MODE=central` en `/etc/snapshot-v3/snapshot.local.conf`.
+2. Deshabilita `snapshot@archive.timer` (el central no respalda nada).
+3. Reinicia `snapshot-backend` que ahora registra los blueprints
+   `central_api`, `central_admin` y `central_dashboard`.
+4. Crea un cliente `demo` + token inicial e imprime el plaintext
+   **una sola vez**. Anotalo.
+5. Imprime el snippet de Caddy para `central.tu-dominio.com`.
+
+### Enrolar un cliente existente al central
+
+En el host cliente, edita `/etc/snapshot-v3/snapshot.local.conf`:
+
+```bash
+CENTRAL_URL="https://central.tu-dominio.com"
+CENTRAL_TOKEN="<token plaintext que copiaste del central>"
+```
+
+`sudo systemctl restart snapshot-backend` (o reboot). Desde ese momento,
+cada `snapctl archive` (éxito o fallo) emite un heartbeat al central. La
+cola local en `central_queue` retiene los heartbeats hasta confirmar
+entrega — backoff exponencial (1m, 5m, 15m, 1h, 6h, 24h) y máximo 20
+intentos antes de marcarlo `dead`. El healthcheck (cada 15min) drena
+la cola. CLI manual: `sudo snapctl central drain-queue`.
+
+### Gestión de tokens desde la UI
+
+Login al central como `admin` u `operator` → `/dashboard-central/clients`:
+
+- **Crear cliente** (proyecto + organización) — solo admin/operator.
+- **Emitir token** desde `/dashboard-central/clients/<id>/tokens` — el
+  plaintext aparece una vez en banner amber, página recarga a los 30s.
+- **Revocar token** — botón rojo en cada fila. El cliente que usaba ese
+  token deja de poder reportar inmediatamente.
+
+### Roles en el central
+
+| Rol     | Alias UI    | Permisos central |
+|---------|-------------|------------------|
+| admin   | webmaster   | Todo (CRUD clients/tokens, gestionar usuarios, settings) |
+| operator| técnico     | CRUD clients, emitir/revocar tokens, configurar alertas |
+| auditor | gerente     | Solo lectura (dashboard, audit, ver clients y tokens) |
+
+Matriz completa en `backend/central/permissions.py`.
+
+### TLS al central
+
+Igual que el cliente: detrás de reverse proxy. Snippet Caddy mínimo:
+
+```
+central.tu-dominio.com {
+  reverse_proxy 127.0.0.1:5070
+}
+```
+
+### Limitaciones conocidas
+
+- **Sin permisos por proyecto** — un `auditor` ve TODOS los clientes.
+  Si necesitás aislamiento por cuenta, usá deploys central separados.
+- **Cola local sin tope temporal automático** — un host desconectado
+  durante meses puede acumular muchos heartbeats. `dead` los excluye
+  del retry pero los conserva en SQLite. Limpiar manualmente si es
+  necesario.
+- **Heartbeats sin firma adicional** — autenticación es por bearer
+  token. Robar el token = poder reportar como ese cliente. Mitigación:
+  rotación regular de tokens vía la UI.
+
 ## CLI (`snapctl`)
 
 Subcomandos del flujo archive (producción):
