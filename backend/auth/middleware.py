@@ -14,13 +14,20 @@ COOKIE_NAME = "snapshot_session"
 CSRF_HEADER = "X-CSRF-Token"
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
-# Endpoints that don't require CSRF (no session yet, or login flow).
+# Endpoints that don't require the snapshot-session CSRF token.
+# Either pre-session login flows, or blueprints with independent auth
+# (e.g., the audit blueprint uses Flask's signed-cookie session, not
+# the auth-session cookie).
 CSRF_EXEMPT_ENDPOINTS = {
     "auth.login",
     "auth.reset_request",
     "auth.reset_consume",
     "auth.mfa_enroll_start",
     "auth.mfa_enroll_confirm",
+    # Audit blueprint — manages its own auth via Flask's signed-cookie
+    # session; doesn't use snapshot_session, so the CSRF token is absent.
+    "audit.login_submit",
+    "audit.api_refresh",
 }
 
 
