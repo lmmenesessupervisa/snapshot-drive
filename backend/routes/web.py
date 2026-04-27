@@ -90,13 +90,14 @@ def settings():
 
 
 # ---------------------------------------------------------------------------
-# Login page stub (template created in Task 28)
+# Auth pages (public — no login required)
 # ---------------------------------------------------------------------------
 
 @web_bp.get("/auth/login")
 def login_page():
-    try:
-        return render_template("auth/login.html")
-    except Exception:
-        # Fallback during transition (Task 28 creates the template)
-        return '<form method="POST" action="/auth/login">login here</form>', 200
+    return render_template("auth/login.html")
+
+
+@web_bp.get("/auth/mfa-enroll")
+def mfa_enroll_page():
+    return render_template("auth/mfa_enroll.html")

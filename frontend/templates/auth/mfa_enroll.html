@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>snapshot-V3 · Configurar MFA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui'], mono: ['JetBrains Mono','ui-monospace'] },
+          colors: { brand: { 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1' } },
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="h-full font-sans antialiased flex items-center justify-center p-6">
+  <div class="w-full max-w-md p-8 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+    <h1 class="text-xl font-semibold mb-2">Configurar MFA</h1>
+    <p class="text-sm text-[var(--muted)] mb-4">
+      Como administrador necesitás MFA. Escaneá el código QR (o pegá la URI manualmente)
+      en una app autenticadora (Google Authenticator, Authy, 1Password, Bitwarden) y luego
+      ingresá un código de 6 dígitos para confirmar.
+    </p>
+    <div id="qr-block" class="mb-4">
+      <pre id="otpauth" class="text-xs break-all p-3 rounded border border-[var(--border)] bg-[var(--bg)] font-mono whitespace-pre-wrap"></pre>
+    </div>
+    <form id="enroll-form" class="space-y-3">
+      <input id="code" name="code" type="text" inputmode="numeric"
+             autocomplete="one-time-code" placeholder="Código de 6 dígitos"
+             class="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm font-mono">
+      <button type="submit"
+              class="w-full rounded bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 text-sm font-medium">
+        Confirmar
+      </button>
+      <p id="enroll-error" class="hidden text-sm text-rose-400"></p>
+    </form>
+    <div id="codes-block" class="mt-6 hidden">
+      <p class="text-sm font-semibold mb-2">Códigos de respaldo (anotalos — no se vuelven a mostrar):</p>
+      <ul id="codes-list" class="grid grid-cols-2 gap-2 text-xs font-mono p-3 rounded border border-amber-500/40 bg-amber-500/10"></ul>
+      <a href="/" class="mt-4 inline-block text-brand-400 text-sm">Continuar al panel →</a>
+    </div>
+  </div>
+<script>
+const email = sessionStorage.getItem("enroll_email");
+const password = sessionStorage.getItem("enroll_password");
+let secret = null;
+
+if (!email || !password) {
+  // No state — go back to login
+  window.location = "/auth/login";
+}
+
+(async () => {
+  const r = await fetch("/auth/mfa/enroll/start", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({email, password}),
+  });
+  if (!r.ok) {
+    document.getElementById("otpauth").textContent =
+      "Error iniciando enrollment. Volvé a /auth/login.";
+    return;
+  }
+  const j = await r.json();
+  secret = j.secret;
+  document.getElementById("otpauth").textContent = j.otpauth_uri;
+})();
+
+document.getElementById("enroll-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const code = document.getElementById("code").value.trim();
+  const r = await fetch("/auth/mfa/enroll/confirm", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({email, password, secret, code}),
+  });
+  const j = await r.json();
+  if (r.ok) {
+    sessionStorage.removeItem("enroll_email");
+    sessionStorage.removeItem("enroll_password");
+    document.getElementById("enroll-form").classList.add("hidden");
+    document.getElementById("qr-block").classList.add("hidden");
+    document.getElementById("codes-block").classList.remove("hidden");
+    const ul = document.getElementById("codes-list");
+    j.backup_codes.forEach((c) => {
+      const li = document.createElement("li");
+      li.textContent = c;
+      ul.appendChild(li);
+    });
+  } else {
+    const p = document.getElementById("enroll-error");
+    p.textContent = j.error || "Código inválido";
+    p.classList.remove("hidden");
+  }
+});
+</script>
+</body>
+</html>
