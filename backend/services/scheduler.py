@@ -19,13 +19,14 @@ from pathlib import Path
 # `create` y `prune` son del flujo restic legacy y solo aplican si el
 # operador los reactiva manualmente. Mantener `archive` aquí permite que
 # la UI edite su horario sin tocar el drop-in a mano.
-SUPPORTED_UNITS = {"archive", "create", "prune"}
+SUPPORTED_UNITS = {"archive", "db-archive", "create", "prune"}
 
 # Defaults razonables si no hay drop-in.
 _DEFAULT_ONCALENDAR = {
-    "archive": "*-*-01 02:00:00",   # día 1 del mes 02:00 UTC (matches install.sh)
-    "create":  "*-*-* 03:00:00",
-    "prune":   "*-*-* 04:00:00",
+    "archive":     "*-*-01 02:00:00",   # día 1 del mes 02:00 UTC (matches install.sh)
+    "db-archive":  "*-*-* 03:00:00",    # diario 03:00 UTC
+    "create":      "*-*-* 03:00:00",
+    "prune":       "*-*-* 04:00:00",
 }
 _DEFAULT_DELAY = "30min"
 
