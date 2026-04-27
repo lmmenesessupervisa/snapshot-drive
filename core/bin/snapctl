@@ -18,6 +18,8 @@ source "${SNAPSHOT_ROOT}/core/lib/drive.sh"
 source "${SNAPSHOT_ROOT}/core/lib/archive.sh"
 # shellcheck disable=SC1091
 [[ -f "${SNAPSHOT_ROOT}/core/lib/central.sh" ]] && source "${SNAPSHOT_ROOT}/core/lib/central.sh"
+# shellcheck disable=SC1091
+[[ -f "${SNAPSHOT_ROOT}/core/lib/db_archive.sh" ]] && source "${SNAPSHOT_ROOT}/core/lib/db_archive.sh"
 
 trap 'log_error "snapctl interrumpido en línea $LINENO"; exit 1' ERR
 trap '_release_on_abort' INT TERM
@@ -122,6 +124,11 @@ Comandos de Drive:
   drive-unlink                         Elimina la vinculación
   drive-shared-list                    Lista unidades compartidas
   drive-target personal|shared <id>    Cambia destino
+
+DB BACKUPS:
+  db-archive                          Dump configurado en DB_BACKUP_TARGETS y sube a Drive
+  db-archive-list [--json]            Lista los dumps en Drive
+  db-archive-restore <path> --target  Restaura dump (decompress + pipe a engine)
 
 USERS / AUTH (root only)
   admin list                          listar usuarios
@@ -695,6 +702,9 @@ main() {
         archive-restore)   cmd_archive_restore "$@" ;;
         archive-prune)     cmd_archive_prune   "$@" ;;
         archive-paths)     cmd_archive_paths   "$@" ;;
+        db-archive)         cmd_db_archive         "$@" ;;
+        db-archive-list)    cmd_db_archive_list    "$@" ;;
+        db-archive-restore) cmd_db_archive_restore "$@" ;;
         admin)
             exec "${SNAPSHOT_ROOT}/.venv/bin/python" \
                 -m backend.auth.admin_cli "$@"
