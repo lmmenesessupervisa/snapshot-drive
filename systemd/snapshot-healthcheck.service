@@ -9,3 +9,6 @@ Environment=SNAPSHOT_ROOT=/opt/snapshot-V3
 ExecStart=/bin/bash -c '\
     /opt/snapshot-V3/core/bin/snapctl status --json >/var/log/snapshot-v3/health.json && \
     curl -fsS http://127.0.0.1:5070/api/health >/dev/null'
+# Drena la cola local de heartbeats hacia el central (no-op si MODE=central
+# o si CENTRAL_URL/CENTRAL_TOKEN no están configurados).
+ExecStartPost=-/opt/snapshot-V3/core/bin/snapctl central drain-queue
