@@ -37,7 +37,8 @@ central_send() {
   "totals": {"size_bytes": ${total:-0}, "count_files": ${count:-0},
              "oldest_ts": null, "newest_ts": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"},
   "host_meta": {"hostname": "$(hostname)", "snapctl_version": "${SNAPCTL_VERSION:-dev}",
-                "rclone_version": "$(rclone version 2>/dev/null | head -1 | awk '{print $2}')"}
+                "rclone_version": "$(rclone version 2>/dev/null | head -1 | awk '{print $2}')",
+                "missing_paths": ${MISSING_PATHS_JSON:-[]}}
 }
 EOF
     "${PYTHON_BIN:-/opt/snapshot-V3/.venv/bin/python}" \
