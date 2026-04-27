@@ -7,4 +7,5 @@ Flask-Limiter>=3.5
 Flask-Talisman>=1.1
 cryptography>=42.0
 segno>=1.6
+requests>=2.31
 pytest>=8.0
