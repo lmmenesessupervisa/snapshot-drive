@@ -88,6 +88,18 @@ class Config:
     BACKUP_NOMBRE   = _CONF.get("BACKUP_NOMBRE", "")
     ARCHIVE_KEEP_MONTHS = int(_CONF.get("ARCHIVE_KEEP_MONTHS", "12") or 12)
 
+    # ─── Sub-proyecto B: despliegue dual ─────────────────────────────────
+    # MODE controla qué blueprints carga app.py. Default "client".
+    _MODE_RAW = (os.getenv("MODE") or _CONF.get("MODE") or "client").strip().lower()
+    MODE = _MODE_RAW if _MODE_RAW in ("client", "central") else "client"
+
+    # Solo relevante en client mode: dónde postear heartbeats.
+    CENTRAL_URL = (os.getenv("CENTRAL_URL") or _CONF.get("CENTRAL_URL") or "").rstrip("/")
+    CENTRAL_TOKEN = os.getenv("CENTRAL_TOKEN") or _CONF.get("CENTRAL_TOKEN") or ""
+    CENTRAL_TIMEOUT_S = int(os.getenv("CENTRAL_TIMEOUT_S") or _CONF.get("CENTRAL_TIMEOUT_S") or "5")
+    # Tope duro de payload aceptado por el endpoint POST /heartbeat
+    CENTRAL_MAX_PAYLOAD_BYTES = 64 * 1024
+
 
 # --- Auth ---
 import secrets

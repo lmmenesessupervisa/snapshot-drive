@@ -30,6 +30,95 @@ CREATE TABLE IF NOT EXISTS audit (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_kind   ON jobs(kind);
+
+-- Sub-proyecto B: despliegue dual + agregación central
+-- Estas tablas se crean en ambos modos (client y central). En client mode
+-- las 5 centrales quedan vacías; en central mode central_queue queda vacía.
+-- Trade-off deliberado: un solo path de inicialización.
+
+CREATE TABLE IF NOT EXISTS clients (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    proyecto        TEXT NOT NULL UNIQUE,
+    organizacion    TEXT,
+    contacto        TEXT,
+    retencion_meses INTEGER,
+    notas           TEXT,
+    created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS targets (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id         INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    category          TEXT NOT NULL CHECK (category IN ('os','db')),
+    subkey            TEXT NOT NULL,
+    label             TEXT NOT NULL,
+    entorno           TEXT,
+    pais              TEXT,
+    last_exec_ts      TEXT,
+    last_exec_status  TEXT,
+    last_size_bytes   INTEGER,
+    total_size_bytes  INTEGER,
+    count_files       INTEGER,
+    oldest_backup_ts  TEXT,
+    newest_backup_ts  TEXT,
+    last_heartbeat_ts TEXT NOT NULL,
+    snapctl_version   TEXT,
+    rclone_version    TEXT,
+    created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(client_id, category, subkey, label)
+);
+CREATE INDEX IF NOT EXISTS idx_targets_client ON targets(client_id);
+CREATE INDEX IF NOT EXISTS idx_targets_silent ON targets(last_heartbeat_ts);
+
+CREATE TABLE IF NOT EXISTS central_tokens (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash   TEXT NOT NULL UNIQUE,
+    client_id    INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    label        TEXT NOT NULL,
+    scope        TEXT NOT NULL DEFAULT 'heartbeat:write',
+    created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at   TEXT,
+    last_used_at TEXT,
+    revoked_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tokens_client
+    ON central_tokens(client_id) WHERE revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS central_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id     TEXT NOT NULL UNIQUE,
+    received_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    token_id     INTEGER NOT NULL REFERENCES central_tokens(id),
+    client_id    INTEGER NOT NULL REFERENCES clients(id),
+    target_id    INTEGER REFERENCES targets(id),
+    op           TEXT NOT NULL,
+    status       TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    src_ip       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_events_target_ts
+    ON central_events(target_id, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_events_client_ts
+    ON central_events(client_id, received_at DESC);
+
+CREATE TABLE IF NOT EXISTS central_user_perms (
+    user_id          INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    can_manage_users INTEGER NOT NULL DEFAULT 0,
+    notes            TEXT
+);
+
+CREATE TABLE IF NOT EXISTS central_queue (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id      TEXT NOT NULL UNIQUE,
+    payload_json  TEXT NOT NULL,
+    enqueued_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    next_retry_ts TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    attempts      INTEGER NOT NULL DEFAULT 0,
+    last_error    TEXT,
+    state         TEXT NOT NULL DEFAULT 'pending'
+);
+CREATE INDEX IF NOT EXISTS idx_queue_due ON central_queue(state, next_retry_ts);
 """
 
 

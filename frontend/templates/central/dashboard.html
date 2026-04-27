@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Dashboard central{% endblock %}
+{% block header %}Dashboard central{% endblock %}
+{% block content %}
+<section class="p-6">
+  <h1 class="text-2xl font-semibold mb-4">Dashboard central</h1>
+  <p class="text-sm text-[var(--muted)] mb-6">
+    {{ rows|length }} cliente(s). Auto-refresh cada 30s.
+  </p>
+  <div class="overflow-x-auto rounded border border-[var(--border)]">
+    <table class="min-w-full text-sm">
+      <thead class="bg-[var(--surface)]">
+        <tr>
+          <th class="text-left px-4 py-2">Proyecto</th>
+          <th class="text-left px-4 py-2">Organización</th>
+          <th class="text-right px-4 py-2">Targets</th>
+          <th class="text-right px-4 py-2">Total (GB)</th>
+          <th class="text-left px-4 py-2">Última ejec.</th>
+          <th class="text-right px-4 py-2">Fallidos</th>
+          <th class="text-left px-4 py-2">Heartbeat más viejo</th>
+        </tr>
+      </thead>
+      <tbody id="dashboard-tbody">
+      {% for r in rows %}
+        <tr class="border-t border-[var(--border)]">
+          <td class="px-4 py-2 font-mono">
+            <a href="/dashboard-central/clients/{{ r.client_id }}"
+               class="text-brand-400 hover:underline">{{ r.proyecto }}</a>
+          </td>
+          <td class="px-4 py-2">{{ r.organizacion or "—" }}</td>
+          <td class="px-4 py-2 text-right">{{ r.targets_count }}</td>
+          <td class="px-4 py-2 text-right">
+            {{ "%.2f"|format((r.total_bytes or 0) / 1073741824) }}
+          </td>
+          <td class="px-4 py-2">{{ r.last_exec_ts or "—" }}</td>
+          <td class="px-4 py-2 text-right
+                     {% if (r.failed_targets or 0) > 0 %}text-rose-400{% endif %}">
+            {{ r.failed_targets or 0 }}
+          </td>
+          <td class="px-4 py-2">{{ r.oldest_heartbeat or "—" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+<script src="{{ url_for('static', filename='js/central/dashboard.js') }}"></script>
+{% endblock %}
