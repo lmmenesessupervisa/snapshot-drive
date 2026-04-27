@@ -187,6 +187,43 @@ def me():
                    mfa_enrolled=bool(u.mfa_secret))
 
 
+from .passwords import (
+    validate_policy, check_history, PolicyError,
+)
+
+
+@auth_bp.post("/password")
+def password_change():
+    u = getattr(g, "current_user", None)
+    if not u:
+        return jsonify(ok=False, error="unauthenticated"), 401
+    payload = request.get_json(silent=True) or {}
+    current = payload.get("current") or ""
+    new = payload.get("new") or ""
+    db = _db()
+    if not verify_password(current, u.password_hash):
+        return jsonify(ok=False, error="current password incorrect"), 400
+    try:
+        validate_policy(new, email=u.email, display_name=u.display_name)
+    except PolicyError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    history = users_mod.get_password_history(db, u.id)
+    try:
+        check_history(new, history)
+    except PolicyError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    if verify_password(new, u.password_hash):
+        return jsonify(ok=False, error="password unchanged"), 400
+    new_hash = hash_password(new)
+    users_mod.update_password(db, u.id, new_hash)
+    ip, ua = _client_meta()
+    audit_mod.write_event(
+        db, actor="web", event="pwd_change", user_id=u.id,
+        email=u.email, ip=ip, user_agent=ua,
+    )
+    return jsonify(ok=True)
+
+
 from . import mfa as mfa_mod
 
 
