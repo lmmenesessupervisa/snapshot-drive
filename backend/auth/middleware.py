@@ -19,6 +19,8 @@ CSRF_EXEMPT_ENDPOINTS = {
     "auth.login",
     "auth.reset_request",
     "auth.reset_consume",
+    "auth.mfa_enroll_start",
+    "auth.mfa_enroll_confirm",
 }
 
 

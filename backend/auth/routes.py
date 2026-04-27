@@ -185,3 +185,67 @@ def me():
     return jsonify(ok=True, email=u.email, role=u.role,
                    display_name=u.display_name,
                    mfa_enrolled=bool(u.mfa_secret))
+
+
+from . import mfa as mfa_mod
+
+
+@auth_bp.post("/mfa/enroll/start")
+def mfa_enroll_start():
+    """Stage 1 of admin enrollment.
+
+    The admin re-supplies email+password (no session yet — login put
+    them in a require_mfa_enroll state). We validate creds and return
+    a fresh secret + otpauth URI. The secret is NOT persisted yet.
+    """
+    payload = request.get_json(silent=True) or {}
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
+    db = _db()
+    user = users_mod.get_user_by_email(db, email) if email else None
+    if not user or user.status != "active" \
+            or not verify_password(password, user.password_hash):
+        return jsonify(ok=False, error="invalid credentials"), 401
+    if user.mfa_secret:
+        return jsonify(ok=False, error="already enrolled"), 400
+    secret = mfa_mod.generate_totp_secret()
+    return jsonify(
+        ok=True,
+        secret=secret,
+        otpauth_uri=mfa_mod.build_otpauth_uri(secret, email=user.email),
+    )
+
+
+@auth_bp.post("/mfa/enroll/confirm")
+def mfa_enroll_confirm():
+    payload = request.get_json(silent=True) or {}
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
+    secret = payload.get("secret") or ""
+    code = payload.get("code") or ""
+    db = _db()
+    user = users_mod.get_user_by_email(db, email) if email else None
+    if not user or user.status != "active" \
+            or not verify_password(password, user.password_hash):
+        return jsonify(ok=False, error="invalid credentials"), 401
+    if user.mfa_secret:
+        return jsonify(ok=False, error="already enrolled"), 400
+    if not mfa_mod.verify_totp(secret, code):
+        return jsonify(ok=False, error="invalid code"), 400
+    sk = current_app.config["SECRET_KEY_BYTES"]
+    backup_codes = mfa_mod.enroll_totp(db, user.id, secret, sk)
+    ip, ua = _client_meta()
+    audit_mod.write_event(
+        db, actor="web", event="mfa_enable", user_id=user.id,
+        email=user.email, ip=ip, user_agent=ua,
+    )
+    s = sess.create_session(
+        db, user_id=user.id, ip=ip, user_agent=ua, mfa_verified=True,
+    )
+    lockout.record_success(db, user.id)
+    resp = make_response(jsonify(
+        ok=True, backup_codes=backup_codes, role=user.role,
+        display_name=user.display_name, csrf_token=s.csrf_token,
+    ))
+    _set_session_cookie(resp, s.id)
+    return resp
