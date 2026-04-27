@@ -1,5 +1,9 @@
 """HTTP endpoints for authentication."""
+import base64
+import io
 import time
+
+import segno
 from flask import Blueprint, current_app, g, jsonify, request, make_response
 
 from . import sessions as sess
@@ -258,10 +262,16 @@ def mfa_enroll_start():
     if user.mfa_secret:
         return jsonify(ok=False, error="already enrolled"), 400
     secret = mfa_mod.generate_totp_secret()
+    otpauth_uri = mfa_mod.build_otpauth_uri(secret, email=user.email)
+    qr = segno.make(otpauth_uri, error="m")
+    buf = io.BytesIO()
+    qr.save(buf, kind="svg", scale=6, border=2, dark="#000000", light="#ffffff")
+    qr_data_url = "data:image/svg+xml;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
     return jsonify(
         ok=True,
         secret=secret,
-        otpauth_uri=mfa_mod.build_otpauth_uri(secret, email=user.email),
+        otpauth_uri=otpauth_uri,
+        qr_data_url=qr_data_url,
     )
 
 

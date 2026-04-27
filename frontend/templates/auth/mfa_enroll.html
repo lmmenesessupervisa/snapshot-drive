@@ -28,8 +28,14 @@
       en una app autenticadora (Google Authenticator, Authy, 1Password, Bitwarden) y luego
       ingresá un código de 6 dígitos para confirmar.
     </p>
-    <div id="qr-block" class="mb-4">
-      <pre id="otpauth" class="text-xs break-all p-3 rounded border border-[var(--border)] bg-[var(--bg)] font-mono whitespace-pre-wrap"></pre>
+    <div id="qr-block" class="mb-4 space-y-3">
+      <div class="flex items-center justify-center p-3 rounded border border-[var(--border)] bg-white">
+        <img id="qr-img" alt="Código QR para MFA" class="w-56 h-56" />
+      </div>
+      <details class="text-xs">
+        <summary class="cursor-pointer text-[var(--muted)] select-none">¿No podés escanear? Mostrar URI manual</summary>
+        <pre id="otpauth" class="mt-2 text-xs break-all p-3 rounded border border-[var(--border)] bg-[var(--bg)] font-mono whitespace-pre-wrap"></pre>
+      </details>
     </div>
     <form id="enroll-form" class="space-y-3">
       <input id="code" name="code" type="text" inputmode="numeric"
@@ -71,6 +77,9 @@ if (!email || !password) {
   const j = await r.json();
   secret = j.secret;
   document.getElementById("otpauth").textContent = j.otpauth_uri;
+  if (j.qr_data_url) {
+    document.getElementById("qr-img").src = j.qr_data_url;
+  }
 })();
 
 document.getElementById("enroll-form").addEventListener("submit", async (e) => {
