@@ -10,6 +10,7 @@ Formato uniforme:
 import logging
 from flask import Blueprint, current_app, jsonify, request
 
+from ..auth.decorators import require_login, require_role, require_any_role
 from ..config import Config
 from ..services.drive_oauth import (
     OAuthError,
@@ -51,18 +52,21 @@ def health():
 
 
 @api_bp.get("/logs")
+@require_any_role("admin", "operator")
 def logs():
     n = request.args.get("lines", default=200, type=int)
     return _ok({"lines": _svc().logs(lines=n)})
 
 
 @api_bp.get("/jobs")
+@require_login
 def jobs():
     limit = request.args.get("limit", default=50, type=int)
     return _ok(_db().job_list(limit=limit))
 
 
 @api_bp.get("/jobs/<int:jid>")
+@require_login
 def job_detail(jid: int):
     j = _db().job_get(jid)
     if not j:
@@ -72,11 +76,13 @@ def job_detail(jid: int):
 
 # ---------- Configuración de paths a respaldar ----------
 @api_bp.get("/config")
+@require_any_role("admin", "operator")
 def config_get():
     return _ok(sysconfig.get_config())
 
 
 @api_bp.post("/config")
+@require_any_role("admin", "operator")
 def config_set():
     payload = request.get_json(silent=True) or {}
     try:
@@ -89,6 +95,7 @@ def config_set():
 
 # ---------- Google Drive (vinculación rclone) ----------
 @api_bp.get("/drive/status")
+@require_login
 def drive_status():
     try:
         return _ok(_svc().drive_status())
@@ -97,6 +104,7 @@ def drive_status():
 
 
 @api_bp.post("/drive/link")
+@require_role("admin")
 def drive_link():
     payload = request.get_json(silent=True) or {}
     token = (payload.get("token") or "").strip()
@@ -112,6 +120,7 @@ def drive_link():
 
 
 @api_bp.post("/drive/unlink")
+@require_role("admin")
 def drive_unlink():
     try:
         _svc().drive_unlink()
@@ -122,6 +131,7 @@ def drive_unlink():
 
 
 @api_bp.get("/drive/shared")
+@require_role("admin")
 def drive_shared_list():
     try:
         return _ok(_svc().drive_shared_list())
@@ -130,6 +140,7 @@ def drive_shared_list():
 
 
 @api_bp.post("/drive/target")
+@require_role("admin")
 def drive_set_target():
     payload = request.get_json(silent=True) or {}
     kind = (payload.get("type") or "").strip()
@@ -148,6 +159,7 @@ def drive_set_target():
 
 # ---------- OAuth Device Flow ----------
 @api_bp.post("/drive/oauth/device/start")
+@require_role("admin")
 def oauth_device_start():
     try:
         dc = start_device_flow(Config.GOOGLE_CLIENT_ID, Config.GOOGLE_OAUTH_SCOPE)
@@ -157,6 +169,7 @@ def oauth_device_start():
 
 
 @api_bp.post("/drive/oauth/device/poll")
+@require_role("admin")
 def oauth_device_poll():
     payload = request.get_json(silent=True) or {}
     device_code = (payload.get("device_code") or "").strip()
@@ -191,11 +204,13 @@ def oauth_device_poll():
 
 # ---------- Archive: configuración de taxonomía + password ----------
 @api_bp.get("/archive/config")
+@require_login
 def archive_config_get():
     return _ok(archive_config.get_config())
 
 
 @api_bp.post("/archive/config")
+@require_role("admin")
 def archive_config_set():
     payload = request.get_json(silent=True) or {}
     try:
@@ -211,6 +226,7 @@ def archive_config_set():
 
 
 @api_bp.post("/archive/password")
+@require_role("admin")
 def archive_password_set():
     payload = request.get_json(silent=True) or {}
     pw      = payload.get("password") or ""
@@ -224,6 +240,7 @@ def archive_password_set():
 
 
 @api_bp.delete("/archive/password")
+@require_role("admin")
 def archive_password_clear():
     try:
         res = archive_config.clear_password()
@@ -235,6 +252,7 @@ def archive_password_clear():
 
 # ---------- Archive: operaciones ----------
 @api_bp.get("/archive/list")
+@require_any_role("admin", "operator")
 def archive_list():
     force = request.args.get("force") == "1"
     try:
@@ -244,6 +262,7 @@ def archive_list():
 
 
 @api_bp.get("/archive/summary")
+@require_login
 def archive_summary():
     force = request.args.get("force") == "1"
     try:
@@ -253,6 +272,7 @@ def archive_summary():
 
 
 @api_bp.post("/archive/create")
+@require_any_role("admin", "operator")
 def archive_create():
     try:
         res = archive_ops.create_archive()
@@ -267,6 +287,7 @@ def archive_create():
 
 
 @api_bp.post("/archive/restore")
+@require_any_role("admin", "operator")
 def archive_restore():
     payload = request.get_json(silent=True) or {}
     try:
@@ -284,6 +305,7 @@ def archive_restore():
 
 
 @api_bp.post("/archive/delete")
+@require_role("admin")
 def archive_delete():
     payload = request.get_json(silent=True) or {}
     try:
