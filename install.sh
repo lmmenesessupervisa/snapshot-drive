@@ -246,6 +246,14 @@ install -d -m 0755 /etc/systemd/system/snapshot@archive.service.d/
 install -m 0644 "$INSTALL_ROOT/systemd/snapshot@archive.service.d/override.conf" \
     /etc/systemd/system/snapshot@archive.service.d/override.conf
 
+# Drop-ins para el backup de bases de datos ('db-archive').
+install -d -m 0755 /etc/systemd/system/snapshot@db-archive.timer.d/
+install -m 0644 "$INSTALL_ROOT/systemd/snapshot@db-archive.timer.d/override.conf" \
+    /etc/systemd/system/snapshot@db-archive.timer.d/override.conf
+install -d -m 0755 /etc/systemd/system/snapshot@db-archive.service.d/
+install -m 0644 "$INSTALL_ROOT/systemd/snapshot@db-archive.service.d/override.conf" \
+    /etc/systemd/system/snapshot@db-archive.service.d/override.conf
+
 systemctl daemon-reload
 systemctl enable --now snapshot-backend.service
 # Backup mensual cold-storage (único timer de backup activo).
@@ -257,6 +265,15 @@ systemctl enable --now snapshot-healthcheck.timer
 systemctl disable --now snapshot@create.timer    2>/dev/null || true
 systemctl disable --now snapshot@reconcile.timer 2>/dev/null || true
 systemctl disable --now snapshot@prune.timer     2>/dev/null || true
+
+# DB archive timer: solo activar si DB_BACKUP_TARGETS está configurado.
+if grep -qE '^DB_BACKUP_TARGETS="[^"]+"' "$LOCAL_CONF" 2>/dev/null; then
+    systemctl enable --now snapshot@db-archive.timer
+    info "snapshot@db-archive.timer activado (DB_BACKUP_TARGETS configurado)."
+else
+    systemctl disable --now snapshot@db-archive.timer 2>/dev/null || true
+    info "snapshot@db-archive.timer NO activado (DB_BACKUP_TARGETS vacío)."
+fi
 systemctl disable --now snapshot@sync.timer      2>/dev/null || true
 
 bold "[8/9] Crear primer usuario admin"
