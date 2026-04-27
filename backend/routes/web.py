@@ -7,6 +7,20 @@ web_bp = Blueprint("web", __name__)
 
 
 # ---------------------------------------------------------------------------
+# Template context processor — injects current_user + csrf_token into every
+# template rendered by this blueprint (and app-wide via app_context_processor).
+# ---------------------------------------------------------------------------
+
+@web_bp.app_context_processor
+def _inject_auth_ctx():
+    return {
+        "current_user": getattr(g, "current_user", None),
+        "csrf_token": (g.session.csrf_token
+                       if getattr(g, "session", None) else None),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Login-redirect helpers
 # ---------------------------------------------------------------------------
 

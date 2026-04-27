@@ -19,6 +19,10 @@
     };
   </script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  {% if csrf_token %}
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  {% endif %}
+  <script src="{{ url_for('static', filename='js/auth.js') }}" defer></script>
 </head>
 <body class="h-full font-sans antialiased">
   <div class="flex h-full">
@@ -34,10 +38,13 @@
         </div>
       </div>
       <nav class="p-3 space-y-1 flex-1">
+        {% if current_user %}
         <a href="/" class="nav-item {{ 'active' if page=='dashboard' else '' }}">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
           <span>Dashboard</span>
         </a>
+        {% endif %}
+        {% if current_user and current_user.role in ('admin', 'operator') %}
         <a href="/snapshots" class="nav-item {{ 'active' if page=='snapshots' else '' }}">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
           <span>Archivos</span>
@@ -46,11 +53,14 @@
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12l4 4v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M14 4v4h4"/><path d="M7 13h8M7 17h8M7 9h3"/></svg>
           <span>Logs</span>
         </a>
+        {% endif %}
+        {% if current_user and current_user.role == 'admin' %}
         <a href="/settings" class="nav-item {{ 'active' if page=='settings' else '' }}">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
           <span>Ajustes</span>
         </a>
-        {% if audit_enabled %}
+        {% endif %}
+        {% if audit_enabled and current_user and current_user.role in ('admin', 'auditor') %}
         <a href="/audit/" class="nav-item {{ 'active' if page=='audit' else '' }}">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>
           <span>Auditoría</span>
@@ -74,7 +84,27 @@
           <div class="text-[11px] uppercase tracking-widest text-[var(--muted)]">snapshot-V3</div>
           <h1 class="app-title">{% block header %}{% endblock %}</h1>
         </div>
-        <div id="toast" class="hidden px-4 py-2 rounded-lg text-sm"></div>
+        <div class="flex items-center gap-4">
+          <div id="toast" class="hidden px-4 py-2 rounded-lg text-sm"></div>
+          {% if current_user %}
+          <div class="flex items-center gap-3">
+            <span class="text-[11px] text-[var(--muted)] hidden sm:block">
+              {{ current_user.display_name }} · <span class="uppercase tracking-wider">{{ current_user.role }}</span>
+            </span>
+            <details class="relative">
+              <summary class="cursor-pointer rounded px-2 py-1 text-[var(--muted)] hover:text-[var(--fg)] hover:bg-black/5 select-none list-none">⋯</summary>
+              <div class="absolute right-0 mt-1 w-56 rounded border border-[var(--border)] bg-[var(--surface)] text-[var(--fg)] shadow-lg z-10">
+                <a href="/auth/change-password" class="block px-3 py-2 text-sm hover:bg-black/5">Cambiar contraseña</a>
+                {% if current_user.role == 'admin' %}
+                <a href="/users" class="block px-3 py-2 text-sm hover:bg-black/5">Usuarios</a>
+                {% endif %}
+                <hr class="border-[var(--border)] my-1">
+                <button id="logout-btn" type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-black/5">Cerrar sesión</button>
+              </div>
+            </details>
+          </div>
+          {% endif %}
+        </div>
       </header>
       <section class="p-8">
         {% block content %}{% endblock %}
