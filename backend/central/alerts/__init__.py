@@ -12,9 +12,11 @@ from .store import (
     list_active, list_recent, get_by_id, count_active_critical,
     mark_notified,
 )
+from .routes import alerts_bp
+from . import sweep  # noqa: F401 — re-exported for cli
 
 __all__ = [
     "fire", "resolve", "resolve_active_by_key", "acknowledge",
     "list_active", "list_recent", "get_by_id", "count_active_critical",
-    "mark_notified",
+    "mark_notified", "alerts_bp", "sweep",
 ]

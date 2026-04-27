@@ -128,9 +128,11 @@ def create_app() -> Flask:
         from .central.api import central_api_bp
         from .central.admin import central_admin_bp
         from .central.dashboard import central_dashboard_bp
+        from .central.alerts import alerts_bp as central_alerts_bp
         app.register_blueprint(central_api_bp)
         app.register_blueprint(central_admin_bp)
         app.register_blueprint(central_dashboard_bp)
+        app.register_blueprint(central_alerts_bp)
 
     # Expón a las plantillas si /audit está habilitado (sirve para mostrar
     # el link de navegación solo en deploys de ops).
