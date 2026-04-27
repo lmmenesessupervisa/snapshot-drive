@@ -1,2 +1,9 @@
 Flask>=3.0,<4.0
 gunicorn>=21.2
+argon2-cffi>=23.1
+pyotp>=2.9
+zxcvbn>=4.4.28
+Flask-Limiter>=3.5
+Flask-Talisman>=1.1
+cryptography>=42.0
+pytest>=8.0
