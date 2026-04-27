@@ -101,3 +101,19 @@ def login_page():
 @web_bp.get("/auth/mfa-enroll")
 def mfa_enroll_page():
     return render_template("auth/mfa_enroll.html")
+
+
+@web_bp.get("/auth/reset-request")
+def reset_request_page():
+    return render_template("auth/password_reset_request.html")
+
+
+@web_bp.get("/auth/reset")
+def reset_consume_page():
+    return render_template("auth/password_reset_consume.html")
+
+
+@web_bp.get("/auth/change-password")
+@web_require_login
+def change_password_page():
+    return render_template("auth/change_password.html")
