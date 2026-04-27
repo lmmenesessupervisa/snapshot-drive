@@ -117,3 +117,13 @@ def reset_consume_page():
 @web_require_login
 def change_password_page():
     return render_template("auth/change_password.html")
+
+
+# ---------------------------------------------------------------------------
+# Admin pages
+# ---------------------------------------------------------------------------
+
+@web_bp.get("/users")
+@web_require_role("admin")
+def users_page():
+    return render_template("users.html", page="users")
