@@ -369,3 +369,161 @@ def reset_consume():
         email=user.email, ip=ip, user_agent=ua,
     )
     return jsonify(ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Admin user management endpoints
+# ---------------------------------------------------------------------------
+
+import secrets as _secrets
+
+from .decorators import require_role
+
+
+def _user_dict(u) -> dict:
+    return {
+        "id": u.id,
+        "email": u.email,
+        "display_name": u.display_name,
+        "role": u.role,
+        "status": u.status,
+        "mfa_enrolled": bool(u.mfa_secret),
+        "last_login_at": u.last_login_at,
+    }
+
+
+@auth_bp.get("/users")
+@require_role("admin")
+def list_users_route():
+    rows = users_mod.list_users(_db())
+    return jsonify(ok=True, users=[_user_dict(u) for u in rows])
+
+
+@auth_bp.post("/users")
+@require_role("admin")
+def create_user_route():
+    payload = request.get_json(silent=True) or {}
+    email = (payload.get("email") or "").strip().lower()
+    display = (payload.get("display_name") or "").strip()
+    role = (payload.get("role") or "").strip()
+    password = payload.get("password") or _gen_temp_password()
+    if not email or not display or role not in users_mod.VALID_ROLES:
+        return jsonify(ok=False, error="invalid input"), 400
+    try:
+        validate_policy(password, email=email, display_name=display)
+    except PolicyError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    try:
+        u = users_mod.create_user(
+            _db(), email=email, display_name=display,
+            password_hash=hash_password(password), role=role,
+        )
+    except users_mod.UserExists:
+        return jsonify(ok=False, error="email already exists"), 400
+    ip, ua = _client_meta()
+    audit_mod.write_event(
+        _db(), actor="web", event="user_create",
+        user_id=u.id, email=u.email, ip=ip, user_agent=ua,
+        detail={"role": role, "by": g.current_user.email},
+    )
+    return jsonify(ok=True, user=_user_dict(u),
+                   initial_password=password if not payload.get("password")
+                                    else None)
+
+
+@auth_bp.post("/users/<int:uid>/set-role")
+@require_role("admin")
+def set_role_route(uid: int):
+    payload = request.get_json(silent=True) or {}
+    role = (payload.get("role") or "").strip()
+    if role not in users_mod.VALID_ROLES:
+        return jsonify(ok=False, error="invalid role"), 400
+    try:
+        users_mod.set_role(_db(), uid, role)
+    except users_mod.UserNotFound:
+        return jsonify(ok=False, error="user not found"), 404
+    audit_mod.write_event(
+        _db(), actor="web", event="role_change",
+        user_id=uid, ip=request.remote_addr,
+        detail={"new_role": role, "by": g.current_user.email},
+    )
+    return jsonify(ok=True)
+
+
+@auth_bp.post("/users/<int:uid>/disable")
+@require_role("admin")
+def disable_route(uid: int):
+    try:
+        users_mod.set_status(_db(), uid, "disabled")
+    except users_mod.UserNotFound:
+        return jsonify(ok=False, error="user not found"), 404
+    sess.revoke_user_sessions(_db(), uid)
+    audit_mod.write_event(
+        _db(), actor="web", event="user_disable",
+        user_id=uid, ip=request.remote_addr,
+        detail={"by": g.current_user.email},
+    )
+    return jsonify(ok=True)
+
+
+@auth_bp.post("/users/<int:uid>/enable")
+@require_role("admin")
+def enable_route(uid: int):
+    try:
+        users_mod.set_status(_db(), uid, "active")
+    except users_mod.UserNotFound:
+        return jsonify(ok=False, error="user not found"), 404
+    return jsonify(ok=True)
+
+
+def _gen_temp_password() -> str:
+    alphabet = ("ABCDEFGHJKLMNPQRSTUVWXYZ"
+                "abcdefghijkmnpqrstuvwxyz23456789")
+    return "-".join(
+        "".join(_secrets.choice(alphabet) for _ in range(4))
+        for _ in range(4)
+    )  # e.g. abCD-efGH-ijKL-mnOP
+
+
+@auth_bp.post("/users/<int:uid>/reset-password")
+@require_role("admin")
+def admin_reset_password_route(uid: int):
+    target = users_mod.get_user_by_id(_db(), uid)
+    if not target:
+        return jsonify(ok=False, error="user not found"), 404
+    pwd = _gen_temp_password()
+    users_mod.update_password(_db(), uid, hash_password(pwd))
+    sess.revoke_user_sessions(_db(), uid)
+    audit_mod.write_event(
+        _db(), actor="web", event="pwd_change",
+        user_id=uid, email=target.email, ip=request.remote_addr,
+        detail={"reason": "admin_reset", "by": g.current_user.email},
+    )
+    return jsonify(ok=True, temp_password=pwd)
+
+
+@auth_bp.post("/users/<int:uid>/revoke-sessions")
+@require_role("admin")
+def revoke_sessions_route(uid: int):
+    sess.revoke_user_sessions(_db(), uid)
+    audit_mod.write_event(
+        _db(), actor="web", event="session_revoked_admin",
+        user_id=uid, ip=request.remote_addr,
+        detail={"by": g.current_user.email},
+    )
+    return jsonify(ok=True)
+
+
+@auth_bp.post("/users/<int:uid>/reset-mfa")
+@require_role("admin")
+def reset_mfa_route(uid: int):
+    target = users_mod.get_user_by_id(_db(), uid)
+    if not target:
+        return jsonify(ok=False, error="user not found"), 404
+    mfa_mod.disable_totp(_db(), uid)
+    audit_mod.write_event(
+        _db(), actor="web", event="mfa_disable",
+        user_id=uid, email=target.email, ip=request.remote_addr,
+        detail={"by": g.current_user.email},
+    )
+    return jsonify(ok=True)
