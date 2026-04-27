@@ -28,6 +28,9 @@ CSRF_EXEMPT_ENDPOINTS = {
     # session; doesn't use snapshot_session, so the CSRF token is absent.
     "audit.login_submit",
     "audit.api_refresh",
+    # M2M central API — autenticado con bearer token, no session cookie:
+    "central_api.heartbeat",
+    "central_api.ping",
 }
 
 

@@ -124,6 +124,10 @@ def create_app() -> Flask:
     app.register_blueprint(web_bp)
     app.register_blueprint(audit_bp)
 
+    if Config.MODE == "central":
+        from .central.api import central_api_bp
+        app.register_blueprint(central_api_bp)
+
     # Expón a las plantillas si /audit está habilitado (sirve para mostrar
     # el link de navegación solo en deploys de ops).
     @app.context_processor
