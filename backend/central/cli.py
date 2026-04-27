@@ -49,6 +49,12 @@ def main():
         print(json.dumps({"ok": True, "queue": st,
                           "central_url": Config.CENTRAL_URL,
                           "mode": Config.MODE}))
+    elif cmd == "alerts-sweep":
+        from . import alerts as _alerts
+        n = _alerts.sweep.sweep_inactive(
+            conn, threshold_hours=Config.ALERTS_NO_HEARTBEAT_HOURS,
+        )
+        print(json.dumps({"ok": True, "fired": n}))
     else:
         print(f"unknown: {cmd}", file=sys.stderr)
         sys.exit(2)
