@@ -140,6 +140,19 @@ def create_app() -> Flask:
     def _inject_flags():
         return {"audit_enabled": Config.AUDIT_ENABLED}
 
+    @app.context_processor
+    def _inject_alerts_count():
+        if Config.MODE != "central":
+            return {"central_alerts_critical": 0}
+        try:
+            from .central.alerts import store as alerts_store
+            return {
+                "central_alerts_critical":
+                    alerts_store.count_active_critical(app.config["DB_CONN"])
+            }
+        except Exception:
+            return {"central_alerts_critical": 0}
+
     @app.errorhandler(404)
     def _404(e):
         return jsonify(ok=False, error="not found"), 404
