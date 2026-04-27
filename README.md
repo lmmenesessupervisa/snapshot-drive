@@ -199,6 +199,126 @@ systemctl list-timers 'snapshot*'
 sudo snapctl archive            # primer archive manual de prueba
 ```
 
+## Autenticación y usuarios
+
+snapshot-V3 expone su panel web detrás de login. **Cualquier acceso al
+panel requiere usuario + contraseña**, y el rol `admin` requiere MFA
+(TOTP) obligatorio.
+
+### Roles
+
+| Rol | Acceso |
+|-----|--------|
+| `admin` | Todas las pantallas y acciones, incluyendo gestión de usuarios |
+| `operator` | Dashboard, archivos, logs, ejecutar/restaurar archive, editar paths y horarios |
+| `auditor` | Dashboard + Auditoría (solo lectura) |
+
+Los permisos detallados (qué endpoint puede llamar cada rol) están en
+`docs/superpowers/specs/2026-04-27-auth-rbac-design.md`.
+
+### Bootstrap del primer admin
+
+`install.sh` crea automáticamente un admin la primera vez:
+
+- **Modo interactivo** (`sudo ./install.sh`): te pide el email, genera
+  password aleatoria de 24 chars, la imprime una sola vez. Anotala.
+- **Modo `-y`** (`sudo ./install.sh -y`): genera email
+  `admin@<hostname>`, password aleatoria, y deja credenciales en
+  `/root/.snapshot-v3-admin-credentials` (0600).
+
+En tu primer login el admin debe configurar MFA (TOTP, compatible
+con Google Authenticator, Authy, 1Password, Bitwarden). Recibirás
+**10 backup codes** — guardalos en un lugar seguro fuera del sistema
+(gestor de contraseñas, sobre sellado, etc.).
+
+### Recuperación: comandos de admin
+
+Si olvidás la password del único admin, podés resetearla como root
+desde el host:
+
+```bash
+sudo snapctl admin reset-password --email admin@hostname
+```
+
+Otros comandos disponibles (todos requieren root, sin login):
+
+```bash
+sudo snapctl admin list                                     # listar
+sudo snapctl admin create --email x@y.z --role operator     # crear
+sudo snapctl admin set-role --email x@y.z --role admin      # cambiar rol
+sudo snapctl admin disable --email x@y.z                    # deshabilitar
+sudo snapctl admin enable --email x@y.z                     # rehabilitar
+sudo snapctl admin revoke-sessions --email x@y.z            # cerrar sesiones
+sudo snapctl admin reset-mfa --email x@y.z                  # quitar TOTP
+```
+
+### MFA — perdiste el dispositivo
+
+1. En el prompt de login, ingresá uno de tus **10 backup codes** en
+   lugar del código TOTP. Es un solo uso.
+2. Una vez dentro, andá a la pestaña Usuarios y hacé "Reset MFA" sobre
+   tu propia cuenta — te pedirá enrollar de nuevo.
+3. Si perdiste también los backup codes, otro admin (o vos vía
+   `sudo snapctl admin reset-mfa`) los puede limpiar.
+
+### Política de contraseñas
+
+- Mínimo **12 caracteres**.
+- Score zxcvbn ≥ 3 (rechaza passwords típicas como `password123`).
+- No puede contener tu email ni tu nombre.
+- No puede ser igual a tus **últimas 5 contraseñas**.
+
+### TLS y exposición externa
+
+El backend escucha en `0.0.0.0:5070` **sin TLS**. Para exponer al
+público, **siempre detrás de un reverse proxy con TLS** (Caddy,
+nginx, traefik). Sin TLS, el cookie `Secure` no viaja y el login no
+funciona desde un navegador remoto.
+
+Ejemplo Caddy:
+
+```
+panel.tu-dominio.com {
+  reverse_proxy 127.0.0.1:5070
+}
+```
+
+### Audit log
+
+Cada evento de auth (login OK/fail, MFA, password change, role change,
+account_disable, etc.) se registra en la tabla `audit_auth` de la
+SQLite del backend. Consulta rápida:
+
+```bash
+sudo sqlite3 /var/lib/snapshot-v3/snapshot.db \
+  "SELECT created_at,actor,event,email,ip FROM audit_auth ORDER BY id DESC LIMIT 50"
+```
+
+### Sesiones
+
+- TTL **8 horas** con sliding refresh: cada request extiende la sesión
+  si quedan menos de 2h por vencer.
+- **Idle timeout 1 hora**: si no hacés ningún request por más de 60
+  minutos, te toca volver a loguear.
+- Logout revoca la sesión inmediatamente (no es solo borrar la cookie
+  del browser).
+
+### Rate limiting
+
+- Login: **10 intentos por minuto por IP**, **5 fallos consecutivos**
+  por cuenta antes del lockout.
+- Lockout exponencial: 15 min × 2^lock_count, máximo 24 h.
+- Reset request: 3/min por IP.
+
+### SECRET_KEY
+
+`/etc/snapshot-v3/snapshot.local.conf` contiene `SECRET_KEY="..."`
+(64 hex chars). Cifra los TOTP secrets en la base. **Si la perdés, los
+TOTP enrollados quedan inválidos** y los usuarios deben re-enrollar
+con sus backup codes (o `snapctl admin reset-mfa`).
+`install.sh` la genera automáticamente; backupéala junto al resto
+del archivo de config local.
+
 ## CLI (`snapctl`)
 
 Subcomandos del flujo archive (producción):
