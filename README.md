@@ -419,6 +419,39 @@ central.tu-dominio.com {
   token. Robar el token = poder reportar como ese cliente. Mitigación:
   rotación regular de tokens vía la UI.
 
+### Alertas (modo central)
+
+El central detecta automáticamente tres condiciones y notifica:
+
+| Tipo | Disparo | Resolución |
+|---|---|---|
+| `no_heartbeat` | target sin reportar > `ALERTS_NO_HEARTBEAT_HOURS` (default 48h) | auto al siguiente heartbeat OK |
+| `folder_missing` | heartbeat reporta `host_meta.missing_paths` no vacío | auto al siguiente heartbeat sin paths faltantes |
+| `backup_shrink` | totals cae > `ALERTS_SHRINK_PCT`% (default 20%) entre heartbeats | manual (admin clickea "Acknowledge") |
+
+**Configuración** en `/etc/snapshot-v3/snapshot.local.conf`:
+
+```bash
+ALERTS_NO_HEARTBEAT_HOURS="48"
+ALERTS_SHRINK_PCT="20"
+ALERTS_EMAIL=""              # vacío = no enviar email
+ALERTS_WEBHOOK=""            # POST JSON para Slack/Discord/etc
+```
+
+**UI:** `/dashboard-central/alerts` muestra activas + histórico. Banner
+rojo en el header cuando hay alertas críticas activas.
+
+**Notificación:** email (vía SMTP de `snapshot.local.conf`) + webhook
+opcional. Falla silenciosa si SMTP/webhook no configurado o caído.
+
+**Sweep `no_heartbeat`:** ejecuta cada 15 min vía
+`snapshot-healthcheck.timer` → `snapctl central alerts-sweep`.
+
+**Severidad automática:**
+- `no_heartbeat` → critical si pasaron >7 días, warning entre 48h-7d.
+- `backup_shrink` → critical si shrink >50%, warning entre 20-50%.
+- `folder_missing` → siempre warning.
+
 ## CLI (`snapctl`)
 
 Subcomandos del flujo archive (producción):
