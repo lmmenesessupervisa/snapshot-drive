@@ -97,6 +97,20 @@ class Config:
     CENTRAL_URL = (os.getenv("CENTRAL_URL") or _CONF.get("CENTRAL_URL") or "").rstrip("/")
     CENTRAL_TOKEN = os.getenv("CENTRAL_TOKEN") or _CONF.get("CENTRAL_TOKEN") or ""
     CENTRAL_TIMEOUT_S = int(os.getenv("CENTRAL_TIMEOUT_S") or _CONF.get("CENTRAL_TIMEOUT_S") or "5")
+
+    # --- Sub-D: alerts (central only) ---
+    ALERTS_NO_HEARTBEAT_HOURS = int(
+        os.getenv("ALERTS_NO_HEARTBEAT_HOURS")
+        or _CONF.get("ALERTS_NO_HEARTBEAT_HOURS")
+        or "48"
+    )
+    ALERTS_SHRINK_PCT = int(
+        os.getenv("ALERTS_SHRINK_PCT")
+        or _CONF.get("ALERTS_SHRINK_PCT")
+        or "20"
+    )
+    ALERTS_EMAIL = os.getenv("ALERTS_EMAIL") or _CONF.get("ALERTS_EMAIL", "")
+    ALERTS_WEBHOOK = os.getenv("ALERTS_WEBHOOK") or _CONF.get("ALERTS_WEBHOOK", "")
     # Tope duro de payload aceptado por el endpoint POST /heartbeat
     CENTRAL_MAX_PAYLOAD_BYTES = 64 * 1024
 
