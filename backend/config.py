@@ -47,7 +47,12 @@ class Config:
     # Timeout para subprocess snapctl (segundos)
     SNAPCTL_TIMEOUT = int(os.getenv("SNAPCTL_TIMEOUT", "3600"))
 
-    SECRET_KEY = os.getenv("SNAPSHOT_SECRET", "change-me-in-production")
+    # NOTE: this is no longer used by Flask. backend/app.py derives Flask's
+    # SECRET_KEY from load_secret_key() via HKDF so there's a single source of
+    # truth (the master in /etc/snapshot-v3/snapshot.local.conf or
+    # SNAPSHOT_SECRET_KEY env). Kept here only for code that still imports
+    # Config.SECRET_KEY directly; do not add new readers.
+    SECRET_KEY = os.getenv("SNAPSHOT_SECRET", "")
 
     # Google OAuth (Device Flow) — leídos de snapshot.conf, overrideables por env
     GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID") or _CONF.get("GOOGLE_CLIENT_ID", "")

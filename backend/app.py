@@ -63,8 +63,6 @@ def create_app() -> Flask:
         template_folder=str(ROOT / "frontend" / "templates"),
         static_folder=str(ROOT / "frontend" / "static"),
     )
-    app.config["SECRET_KEY"] = Config.SECRET_KEY
-
     # Resolve DB path: SNAPSHOT_DB_PATH env (set by tests) overrides Config.DB_PATH
     db_path = Path(os.getenv("SNAPSHOT_DB_PATH") or Config.DB_PATH)
     app.config["DB_PATH"] = db_path
@@ -75,7 +73,15 @@ def create_app() -> Flask:
     app.config["SNAPCTL_SVC"] = svc
 
     # --- Auth bootstrap ---
-    app.config["SECRET_KEY_BYTES"] = load_secret_key()
+    # Single source of truth for keying material: load_secret_key() returns the
+    # master bytes (env/local.conf/auto-gen). The auth subsystem uses it raw to
+    # encrypt MFA TOTP secrets; Flask's session signing key (used by the audit
+    # blueprint's signed-cookie session) is derived from it via HKDF so a stale
+    # placeholder Config.SECRET_KEY never reaches Flask.
+    from .auth.crypto import derive_key
+    master_key = load_secret_key()
+    app.config["SECRET_KEY_BYTES"] = master_key
+    app.config["SECRET_KEY"] = derive_key(master_key, info=b"flask-session")
     auth_conn = sqlite3.connect(str(db_path), check_same_thread=False, isolation_level=None)
     auth_conn.execute("PRAGMA journal_mode=WAL")
     apply_migrations(auth_conn)
