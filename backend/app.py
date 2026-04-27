@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
 from flask import Flask, jsonify  # noqa: E402
 from flask_limiter import Limiter  # noqa: E402
 from flask_limiter.util import get_remote_address  # noqa: E402
+from flask_talisman import Talisman  # noqa: E402
 
 from backend.auth import auth_bp  # noqa: E402
 from backend.auth.middleware import install_auth_middleware  # noqa: E402
@@ -94,6 +95,24 @@ def create_app() -> Flask:
 
     from .auth.routes import register_rate_limits
     register_rate_limits(app)
+
+    csp = {
+        "default-src": "'self'",
+        "img-src": ["'self'", "data:"],
+        "style-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com"],
+        "script-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com"],
+        "connect-src": "'self'",
+        "frame-ancestors": "'none'",
+    }
+    Talisman(
+        app,
+        content_security_policy=csp,
+        force_https=False,
+        strict_transport_security=True,
+        strict_transport_security_max_age=31536000,
+        frame_options="DENY",
+        referrer_policy="same-origin",
+    )
 
     app.register_blueprint(api_bp)
     app.register_blueprint(web_bp)
