@@ -39,8 +39,9 @@ NOTIFY_EMAIL=""
 # Ponlo a 1 ÚNICAMENTE en tu máquina ops, nunca en un servidor de cliente
 # (los clientes no deben poder ver a otros clientes).
 SNAPSHOT_AUDIT_VIEWER="0"
-# Contraseña para acceder a /audit (el único login de la vista).
-AUDIT_PASSWORD=""
+# /audit ahora usa el login normal del panel — accesible para cuentas con
+# rol admin o auditor. Antes tenía un login propio con AUDIT_PASSWORD; ese
+# campo se quitó.
 # Carpeta raíz dentro del shared Drive donde están los subfolders por host
 # (si cada cliente sube a 'snapshots/<hostname>/', déjalo en 'snapshots').
 AUDIT_REMOTE_PATH="snapshots"
