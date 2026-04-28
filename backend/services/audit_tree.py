@@ -108,7 +108,12 @@ class AuditTreeService:
         return r.stdout
 
     def _list_all(self) -> list[dict]:
-        path = f"{self.remote}:{self.remote_path}/"
+        # Las taxonomías nuevas (tar.zst y db/*) viven en el RAÍZ del remote
+        # (gdrive:proyecto/entorno/pais/...). El prefijo `snapshots/` es legacy
+        # del modelo viejo con repos restic, y por lo tanto NO lo usamos acá:
+        # si AUDIT_REMOTE_PATH apunta ahí, el tree quedaría vacío. Forzamos
+        # el escaneo desde la raíz para descubrir todos los proyectos.
+        path = f"{self.remote}:"
         raw = self._rclone(
             "lsjson", "-R", "--files-only", "--no-modtime", "--fast-list", path
         )
