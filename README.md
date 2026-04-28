@@ -519,6 +519,90 @@ Cada target emite un heartbeat al central con `target.category="db"`,
 junto a los OS targets. Las alertas (sub-D) — `no_heartbeat`,
 `backup_shrink` — aplican igual a DB targets.
 
+## Cifrado de backups (openssl vs age)
+
+snapshot-V3 soporta dos modos de cifrado, mutuamente excluyentes:
+
+| Modo | Activación | Recovery |
+|---|---|---|
+| **openssl** (legacy) | `ARCHIVE_PASSWORD="..."` | password compartida; perderla = data perdida |
+| **age** (recomendado) | `ARCHIVE_AGE_RECIPIENTS="age1xyz..."` | privada(s) en escrow; múltiples recipients = múltiples privadas válidas |
+| **none** | ambos vacíos | sin cifrado (solo zstd) |
+
+Si ambos están seteados, **age gana** y emite un warning. Los backups
+viejos en formato `.enc` siguen restauraables — el restore detecta la
+extensión y elige la herramienta correcta.
+
+### Generar keypair age
+
+```bash
+sudo snapctl crypto-keygen
+```
+
+Imprime una vez:
+- **PUBLIC KEY** (`age1xyz...`) → pegar en `ARCHIVE_AGE_RECIPIENTS` de
+  `snapshot.local.conf`.
+- **PRIVATE KEY** (`AGE-SECRET-KEY-1...`) → guardar en gestor de
+  contraseñas o sobre sellado. **NO en este host** (excepto temporal
+  para restore).
+
+### Múltiples recipients (recomendado)
+
+```bash
+ARCHIVE_AGE_RECIPIENTS="age1ops... age1escrow..."
+```
+
+age cifra para todos los recipients en paralelo. Cualquiera de las
+privadas asociadas puede descifrar — útil para tener:
+- Una privada operacional (gestor del equipo).
+- Una privada en escrow (oficina, sobre sellado, hardware key).
+
+### Restore con age
+
+```bash
+# 1. Copiar la privada al host temporalmente:
+sudo nano /var/lib/snapshot-v3/age-identity.txt
+sudo chmod 600 /var/lib/snapshot-v3/age-identity.txt
+
+# 2. Setear el path en local.conf:
+sudo nano /etc/snapshot-v3/snapshot.local.conf
+# ARCHIVE_AGE_IDENTITY_FILE="/var/lib/snapshot-v3/age-identity.txt"
+
+# 3. Restore (auto-detecta .age):
+sudo snapctl archive-restore <remote_path> --target /tmp/restore
+
+# 4. BORRAR la privada del host:
+sudo shred -u /var/lib/snapshot-v3/age-identity.txt
+sudo sed -i 's/^ARCHIVE_AGE_IDENTITY_FILE=.*/ARCHIVE_AGE_IDENTITY_FILE=""/' \
+    /etc/snapshot-v3/snapshot.local.conf
+```
+
+### Migrar de openssl a age
+
+No hay migración automática. Para que los backups nuevos usen age:
+
+```bash
+sudo snapctl crypto-keygen   # imprime pub + priv
+sudo nano /etc/snapshot-v3/snapshot.local.conf
+# ARCHIVE_AGE_RECIPIENTS="age1xyz..."
+# (dejá ARCHIVE_PASSWORD seteado por ahora — sigue cubriendo restore
+#  de backups viejos; age gana automáticamente para backups nuevos)
+```
+
+Cuando todos los backups que querés conservar ya estén en `.age`,
+podés vaciar `ARCHIVE_PASSWORD` (los archivos `.enc` viejos en Drive
+ya no serán restauraables sin re-setear la password).
+
+### Velocidad
+
+age es notablemente más rápido que openssl:
+- ChaCha20-Poly1305 (age) vs AES-CBC (openssl) en CPUs sin AES-NI.
+- Sin overhead de PBKDF2 100k rounds al inicio (age usa key wrapping
+  X25519, que es mucho más barato).
+
+En un VPS típico: archive 1 GB → ~8 s zstd + age vs ~12 s zstd +
+openssl.
+
 ## CLI (`snapctl`)
 
 Subcomandos del flujo archive (producción):

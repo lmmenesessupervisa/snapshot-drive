@@ -30,7 +30,12 @@ _db_build_path() {
         mongo)          ext="archive.zst" ;;
         *)              ext="dump.zst" ;;
     esac
-    [[ -n "${ARCHIVE_PASSWORD:-}" ]] && ext="${ext}.enc"
+    if declare -F crypto_extension >/dev/null 2>&1; then
+        local crypto_ext; crypto_ext="$(crypto_extension)"
+        [[ -n "$crypto_ext" ]] && ext="${ext}.${crypto_ext}"
+    elif [[ -n "${ARCHIVE_PASSWORD:-}" ]]; then
+        ext="${ext}.enc"
+    fi
     printf '%s/%s/%s/%s/servidor_%s_%s.%s' \
         "$(_db_remote_base "$engine" "$dbname")" \
         "$year" "$month" "$day" "$dbname" "$ts" "$ext"
@@ -125,18 +130,11 @@ _db_archive_target() {
     local save_opts; save_opts="$(set +o | grep pipefail)"
     set -o pipefail
 
-    if $encrypted; then
-        _db_dump_cmd "$engine" "$dbname" 2>/dev/null \
-            | zstd -T0 -10 -q \
-            | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -pass env:ARCHIVE_PASSWORD \
-            | rclone --config "$RCLONE_CONFIG" rcat "${RCLONE_REMOTE}:${remote_path}" \
-            || rc=$?
-    else
-        _db_dump_cmd "$engine" "$dbname" 2>/dev/null \
-            | zstd -T0 -10 -q \
-            | rclone --config "$RCLONE_CONFIG" rcat "${RCLONE_REMOTE}:${remote_path}" \
-            || rc=$?
-    fi
+    _db_dump_cmd "$engine" "$dbname" 2>/dev/null \
+        | zstd -T0 -10 -q \
+        | crypto_encrypt_pipe \
+        | rclone --config "$RCLONE_CONFIG" rcat "${RCLONE_REMOTE}:${remote_path}" \
+        || rc=$?
     eval "$save_opts"
 
     local dur=$(( $(date +%s) - start_ts ))
@@ -251,16 +249,10 @@ cmd_db_archive_restore() {
     local save_opts; save_opts="$(set +o | grep pipefail)"
     set -o pipefail
 
-    if $encrypted; then
-        rclone --config "$RCLONE_CONFIG" cat "${RCLONE_REMOTE}:${remote_path}" \
-            | openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -pass env:ARCHIVE_PASSWORD \
-            | zstd -dc \
-            | bash -c "$restore_cmd"
-    else
-        rclone --config "$RCLONE_CONFIG" cat "${RCLONE_REMOTE}:${remote_path}" \
-            | zstd -dc \
-            | bash -c "$restore_cmd"
-    fi
+    rclone --config "$RCLONE_CONFIG" cat "${RCLONE_REMOTE}:${remote_path}" \
+        | crypto_decrypt_for_path "$remote_path" \
+        | zstd -dc \
+        | bash -c "$restore_cmd"
     local rc=$?
     eval "$save_opts"
     [[ $rc -eq 0 ]] && log_info "DB restore OK" || log_error "DB restore FAIL rc=$rc"

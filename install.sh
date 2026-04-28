@@ -25,6 +25,7 @@ FRONTEND_PORT="${FRONTEND_PORT:-5071}"
 : "${PYTHON_PBS_DATE:=20241219}"
 : "${RESTIC_VERSION:=0.17.3}"
 : "${RCLONE_VERSION:=v1.68.2}"
+: "${AGE_VERSION:=v1.2.1}"
 
 ASSUME_YES=0
 CENTRAL_MODE=0
@@ -74,11 +75,13 @@ case "$ARCH" in
         PYTHON_PLATFORM="x86_64-unknown-linux-gnu"
         RESTIC_PLATFORM="linux_amd64"
         RCLONE_PLATFORM="linux-amd64"
+        AGE_PLATFORM="linux-amd64"
         ;;
     aarch64|arm64)
         PYTHON_PLATFORM="aarch64-unknown-linux-gnu"
         RESTIC_PLATFORM="linux_arm64"
         RCLONE_PLATFORM="linux-arm64"
+        AGE_PLATFORM="linux-arm64"
         ;;
     *)
         echo "!! Arquitectura no soportada: $ARCH"
@@ -144,6 +147,7 @@ PYTHON_TARBALL="cpython-${PYTHON_VERSION}+${PYTHON_PBS_DATE}-${PYTHON_PLATFORM}-
 PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PYTHON_PBS_DATE}/${PYTHON_TARBALL}"
 RESTIC_URL="https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_${RESTIC_PLATFORM}.bz2"
 RCLONE_URL="https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-${RCLONE_PLATFORM}.zip"
+AGE_URL="https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/age-${AGE_VERSION}-${AGE_PLATFORM}.tar.gz"
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -162,6 +166,10 @@ _restic_bundled_ver() {
 }
 _rclone_bundled_ver() {
     "$BUNDLE_DIR/bin/rclone" version 2>/dev/null | awk 'NR==1{sub(/^v/, "", $2); print $2}' || true
+}
+_age_bundled_ver() {
+    # age --version emite "v1.2.1" — quitamos la 'v' y devolvemos los digits.
+    "$BUNDLE_DIR/bin/age" --version 2>/dev/null | head -1 | sed 's/^v//' || true
 }
 
 # --- Python standalone ---
@@ -210,6 +218,18 @@ PY
     info "rclone $(_rclone_bundled_ver) instalado."
 else
     info "rclone bundled ya presente: $(_rclone_bundled_ver)"
+fi
+
+# --- age (opt-in encryption alternative to openssl) ---
+AGE_EXPECT="${AGE_VERSION#v}"
+if [[ ! -x "$BUNDLE_DIR/bin/age" ]] || [[ "$(_age_bundled_ver)" != "$AGE_EXPECT" ]]; then
+    fetch "$AGE_URL" "$TMP_DIR/age.tar.gz"
+    tar -xzf "$TMP_DIR/age.tar.gz" -C "$TMP_DIR"
+    install -m 0755 "$TMP_DIR/age/age" "$BUNDLE_DIR/bin/age"
+    install -m 0755 "$TMP_DIR/age/age-keygen" "$BUNDLE_DIR/bin/age-keygen"
+    info "age $(_age_bundled_ver) instalado."
+else
+    info "age bundled ya presente: $(_age_bundled_ver)"
 fi
 
 bold "[5/9] Virtualenv Python (contra el Python bundled) y deps backend"

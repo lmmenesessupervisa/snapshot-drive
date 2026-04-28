@@ -20,6 +20,8 @@ source "${SNAPSHOT_ROOT}/core/lib/archive.sh"
 [[ -f "${SNAPSHOT_ROOT}/core/lib/central.sh" ]] && source "${SNAPSHOT_ROOT}/core/lib/central.sh"
 # shellcheck disable=SC1091
 [[ -f "${SNAPSHOT_ROOT}/core/lib/db_archive.sh" ]] && source "${SNAPSHOT_ROOT}/core/lib/db_archive.sh"
+# shellcheck disable=SC1091
+[[ -f "${SNAPSHOT_ROOT}/core/lib/crypto.sh" ]] && source "${SNAPSHOT_ROOT}/core/lib/crypto.sh"
 
 trap 'log_error "snapctl interrumpido en línea $LINENO"; exit 1' ERR
 trap '_release_on_abort' INT TERM
@@ -130,6 +132,9 @@ DB BACKUPS:
   db-archive-list [--json]            Lista los dumps en Drive
   db-archive-restore <path> --target  Restaura dump (decompress + pipe a engine)
 
+CRYPTO:
+  crypto-keygen                       Genera keypair age (pub + priv una sola vez)
+
 USERS / AUTH (root only)
   admin list                          listar usuarios
   admin create --email X --role R     crear usuario
@@ -145,6 +150,39 @@ EOF
 }
 
 # ---------- Sub-comandos ----------
+cmd_crypto_keygen() {
+    local age_keygen="${SNAPSHOT_ROOT}/bundle/bin/age-keygen"
+    [[ -x "$age_keygen" ]] || die "age-keygen no instalado en bundle/bin/. Re-ejecuta install.sh."
+
+    local out; out="$("$age_keygen" 2>&1)"
+    local pub priv
+    pub="$(echo "$out" | awk -F': ' '/# public key:/{print $2}' | tr -d ' ')"
+    priv="$(echo "$out" | grep -v '^#' | head -1)"
+
+    cat <<EOF
+
+Generando age keypair…
+
+PUBLIC KEY (pegar en ARCHIVE_AGE_RECIPIENTS de snapshot.local.conf):
+  ${pub}
+
+PRIVATE KEY (anotar AHORA — no se vuelve a mostrar):
+  ${priv}
+
+⚠  Recomendaciones:
+   - Pegá la pública en /etc/snapshot-v3/snapshot.local.conf:
+       ARCHIVE_AGE_RECIPIENTS="${pub}"
+   - Guardá la privada en un gestor de contraseñas o sobre sellado
+   - NUNCA escribas la privada en este host (excepto temporalmente
+     para restore, en /var/lib/snapshot-v3/age-identity.txt 0600)
+
+Para múltiples recipients (operacional + escrow), corré este comando
+varias veces y pegá ambas pubs separadas por espacios:
+  ARCHIVE_AGE_RECIPIENTS="age1ops... age1escrow..."
+
+EOF
+}
+
 cmd_init() {
     ensure_dirs
     require_cmd restic
@@ -705,6 +743,7 @@ main() {
         db-archive)         cmd_db_archive         "$@" ;;
         db-archive-list)    cmd_db_archive_list    "$@" ;;
         db-archive-restore) cmd_db_archive_restore "$@" ;;
+        crypto-keygen)      cmd_crypto_keygen      "$@" ;;
         admin)
             exec "${SNAPSHOT_ROOT}/.venv/bin/python" \
                 -m backend.auth.admin_cli "$@"
