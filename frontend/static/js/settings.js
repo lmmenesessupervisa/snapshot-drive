@@ -373,9 +373,54 @@ $('kp-append').onclick = () => {
   $('dlg-keypair').close();
 };
 
+// --- Alerts (sub-D) ---
+async function loadAlertsConfig() {
+  if (!$('btn-save-alerts')) return;  // no-central deploy: section absent
+  try {
+    // Use raw fetch — alerts endpoints live under /api/admin/alerts, not /api/.
+    const r = await fetch('/api/admin/alerts/config', {
+      headers: { 'X-CSRF-Token': API._csrf() },
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    const c = j.data || {};
+    $('al-hours').value = c.no_heartbeat_hours ?? 48;
+    $('al-shrink').value = c.shrink_pct ?? 20;
+    $('al-email').value = c.email || '';
+    $('al-webhook-state').textContent = c.webhook_set ? '(guardado)' : '(no configurado)';
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+if ($('btn-save-alerts')) {
+  $('btn-save-alerts').onclick = async () => {
+    const body = {
+      no_heartbeat_hours: parseInt($('al-hours').value, 10),
+      shrink_pct: parseInt($('al-shrink').value, 10),
+      email: $('al-email').value.trim(),
+      clear_email: $('al-email-clear').checked,
+      webhook: $('al-webhook').value.trim(),
+      clear_webhook: $('al-webhook-clear').checked,
+    };
+    try {
+      const r = await fetch('/api/admin/alerts/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': API._csrf() },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok || j.ok === false) throw new Error(j.error || ('HTTP ' + r.status));
+      toast('Alertas guardadas', 'success');
+      $('al-webhook').value = ''; $('al-webhook-clear').checked = false;
+      $('al-email-clear').checked = false;
+      loadAlertsConfig();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+}
+
 // --- boot ---
 loadStatus();
 loadConfig();
 loadArchiveConfig();
 loadDbConfig();
 loadCryptoConfig();
+loadAlertsConfig();

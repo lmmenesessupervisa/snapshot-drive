@@ -395,3 +395,29 @@ header.app-header {
 @media (max-width: 640px) {
   .user-meta { display: none; }
 }
+
+/* ---------- Row actions menu (tablas con muchas acciones) ---------- */
+details.row-actions > summary { list-style: none; }
+details.row-actions > summary::-webkit-details-marker { display: none; }
+
+.row-actions-panel {
+  position: absolute; right: 0; top: calc(100% + .25rem);
+  min-width: 12rem;
+  background: var(--card);
+  border: 1px solid var(--border-color);
+  border-radius: .65rem;
+  box-shadow: var(--shadow-lg);
+  padding: .25rem;
+  z-index: 25;
+  text-align: left;
+}
+.row-actions-item {
+  display: block; width: 100%;
+  padding: .45rem .65rem;
+  font-size: .8rem; color: var(--foreground);
+  border-radius: .45rem; border: none; background: transparent;
+  text-align: left; cursor: pointer;
+}
+.row-actions-item:hover { background: var(--accent-surface); }
+.row-actions-item-danger { color: var(--destructive); }
+.row-actions-item-danger:hover { background: #fde7ec; }

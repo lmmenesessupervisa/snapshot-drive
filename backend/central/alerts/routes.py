@@ -43,6 +43,17 @@ def get_config():
     })
 
 
+@alerts_bp.post("/config")
+@require_central_perm("central.alerts:configure")
+def set_config():
+    from backend.services import archive_config
+    payload = request.get_json(silent=True) or {}
+    try:
+        return _ok(archive_config.set_alerts_config(payload))
+    except archive_config.ArchiveConfigError as e:
+        return _err(str(e), 400)
+
+
 @alerts_bp.get("/<int:alert_id>")
 @require_central_perm("central.dashboard:view")
 def get_alert(alert_id):

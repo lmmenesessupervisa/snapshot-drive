@@ -334,6 +334,77 @@ def set_recipients(raw: str) -> dict:
     return get_crypto_config()
 
 
+# ---------------------------------------------------------------------------
+# Sub-D: alerts (only used when MODE=central)
+# ---------------------------------------------------------------------------
+
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+_URL_RE   = re.compile(r"^https?://[^\s\"']+$")
+
+
+def get_alerts_config() -> dict:
+    vals = _read(_local_conf_path())
+    return {
+        "no_heartbeat_hours": int(vals.get("ALERTS_NO_HEARTBEAT_HOURS", "48") or 48),
+        "shrink_pct": int(vals.get("ALERTS_SHRINK_PCT", "20") or 20),
+        "email": vals.get("ALERTS_EMAIL", ""),
+        "webhook_set": bool(vals.get("ALERTS_WEBHOOK", "")),
+    }
+
+
+def set_alerts_config(values: dict) -> dict:
+    updates: dict[str, str] = {}
+
+    if "no_heartbeat_hours" in values:
+        try:
+            n = int(values["no_heartbeat_hours"])
+        except (TypeError, ValueError):
+            raise ArchiveConfigError("no_heartbeat_hours debe ser entero.")
+        if not (1 <= n <= 720):
+            raise ArchiveConfigError("no_heartbeat_hours debe estar entre 1 y 720.")
+        updates["ALERTS_NO_HEARTBEAT_HOURS"] = str(n)
+
+    if "shrink_pct" in values:
+        try:
+            p = int(values["shrink_pct"])
+        except (TypeError, ValueError):
+            raise ArchiveConfigError("shrink_pct debe ser entero.")
+        if not (1 <= p <= 99):
+            raise ArchiveConfigError("shrink_pct debe estar entre 1 y 99.")
+        updates["ALERTS_SHRINK_PCT"] = str(p)
+
+    email = (values.get("email") or "").strip()
+    if email:
+        if not _EMAIL_RE.match(email) or len(email) > 256:
+            raise ArchiveConfigError("Email inválido.")
+        updates["ALERTS_EMAIL"] = email
+    elif values.get("clear_email"):
+        updates["ALERTS_EMAIL"] = ""
+
+    if values.get("webhook"):
+        url = values["webhook"].strip()
+        if not _URL_RE.match(url) or len(url) > 1024:
+            raise ArchiveConfigError("Webhook debe ser https?://… (máx 1024 chars).")
+        updates["ALERTS_WEBHOOK"] = url
+    elif values.get("clear_webhook"):
+        updates["ALERTS_WEBHOOK"] = ""
+
+    if updates:
+        _write_back(updates)
+        # Apply to in-memory Config so cambios surten efecto en el dispatch
+        # de alertas sin esperar al próximo restart del backend.
+        if "ALERTS_NO_HEARTBEAT_HOURS" in updates:
+            Config.ALERTS_NO_HEARTBEAT_HOURS = int(updates["ALERTS_NO_HEARTBEAT_HOURS"])
+        if "ALERTS_SHRINK_PCT" in updates:
+            Config.ALERTS_SHRINK_PCT = int(updates["ALERTS_SHRINK_PCT"])
+        if "ALERTS_EMAIL" in updates:
+            Config.ALERTS_EMAIL = updates["ALERTS_EMAIL"]
+        if "ALERTS_WEBHOOK" in updates:
+            Config.ALERTS_WEBHOOK = updates["ALERTS_WEBHOOK"]
+
+    return get_alerts_config()
+
+
 def generate_keypair() -> dict:
     """Run age-keygen and return public + private. Does NOT persist the
     private key — it's the caller's responsibility to copy it now.

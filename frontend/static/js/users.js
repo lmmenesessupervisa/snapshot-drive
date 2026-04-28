@@ -20,14 +20,20 @@ async function load() {
         <td>${u.mfa_enrolled ? '<span class="chip chip-emerald">enrolado</span>' : '<span class="chip chip-slate">no</span>'}</td>
         <td>${u.status === 'active' ? '<span class="chip chip-emerald">activo</span>' : '<span class="chip chip-rose">deshab.</span>'}</td>
         <td class="text-xs">${u.last_login_at || '—'}</td>
-        <td class="text-right space-x-1 whitespace-nowrap">
-          <button data-id="${u.id}" data-act="reset-password" class="btn-secondary text-xs">Reset PWD</button>
-          <button data-id="${u.id}" data-act="revoke-sessions" class="btn-secondary text-xs">Cerrar sesiones</button>
-          <button data-id="${u.id}" data-act="reset-mfa" class="btn-secondary text-xs">Reset MFA</button>
-          <button data-id="${u.id}" data-act="${u.status === 'active' ? 'disable' : 'enable'}"
-                  class="${u.status === 'active' ? 'btn-danger' : 'btn-secondary'} text-xs">
-            ${u.status === 'active' ? 'Deshabilitar' : 'Habilitar'}
-          </button>
+        <td class="text-right">
+          <details class="row-actions relative inline-block">
+            <summary class="btn-secondary text-xs cursor-pointer select-none">Acciones ▾</summary>
+            <div class="row-actions-panel">
+              <button data-id="${u.id}" data-act="reset-password" class="row-actions-item">Reset contraseña</button>
+              <button data-id="${u.id}" data-act="revoke-sessions" class="row-actions-item">Cerrar sesiones</button>
+              <button data-id="${u.id}" data-act="reset-mfa" class="row-actions-item">Reset MFA</button>
+              <hr class="border-[var(--border)] my-1">
+              <button data-id="${u.id}" data-act="${u.status === 'active' ? 'disable' : 'enable'}"
+                      class="row-actions-item ${u.status === 'active' ? 'row-actions-item-danger' : ''}">
+                ${u.status === 'active' ? 'Deshabilitar' : 'Habilitar'}
+              </button>
+            </div>
+          </details>
         </td>`;
       tb.appendChild(tr);
     });
@@ -41,6 +47,9 @@ document.addEventListener("click", async (e) => {
   if (!b) return;
   const id = b.dataset.id;
   const act = b.dataset.act;
+  // Cerrar el menú abierto al ejecutar la acción
+  const menu = b.closest("details.row-actions");
+  if (menu) menu.removeAttribute("open");
   if (act === 'reset-password' && !confirm("¿Generar nueva contraseña?")) return;
   if (act === 'reset-mfa' && !confirm("¿Resetear MFA del usuario?")) return;
   if (act === 'revoke-sessions' && !confirm("¿Cerrar todas las sesiones?")) return;
@@ -78,6 +87,13 @@ document.getElementById("form-create").addEventListener("submit", async (e) => {
     p.textContent = j.error || "Error";
     p.classList.remove("hidden");
   }
+});
+
+// Cerrar cualquier menú "Acciones" abierto al hacer click fuera de él.
+document.addEventListener("click", (e) => {
+  document.querySelectorAll("details.row-actions[open]").forEach((d) => {
+    if (!d.contains(e.target)) d.removeAttribute("open");
+  });
 });
 
 load();

@@ -208,6 +208,63 @@
     </div>
   </div>
 
+  {% if deploy_mode == 'central' %}
+  <!-- Alertas (sub-D) — solo en MODE=central -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-[var(--border)]">
+      <h2 class="font-semibold">Alertas</h2>
+      <p class="text-xs text-[var(--muted)] mt-1">
+        Reglas: <b>no_heartbeat</b> (cliente no reporta hace X horas),
+        <b>folder_missing</b> (carpeta esperada vacía) y
+        <b>backup_shrink</b> (totales caen más de X%). Ver alertas activas en
+        <a href="/dashboard-central/alerts" class="text-brand-500 hover:underline">/dashboard-central/alerts</a>.
+      </p>
+    </div>
+    <div class="p-5 space-y-4 text-sm">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <label class="block">
+          <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Sin heartbeat (horas)</span>
+          <input id="al-hours" type="number" min="1" max="720" class="input mt-1 mono" placeholder="48">
+          <span class="text-[11px] text-[var(--muted)] block mt-1">Más allá de esto el cliente se considera silencioso.</span>
+        </label>
+        <label class="block">
+          <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Shrink threshold (%)</span>
+          <input id="al-shrink" type="number" min="1" max="99" class="input mt-1 mono" placeholder="20">
+          <span class="text-[11px] text-[var(--muted)] block mt-1">Caída en bytes acumulados que dispara <code>backup_shrink</code>.</span>
+        </label>
+      </div>
+
+      <label class="block">
+        <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Email destinatario</span>
+        <input id="al-email" type="email" class="input mt-1" placeholder="ops@empresa.com">
+        <span class="text-[11px] text-[var(--muted)] block mt-1">
+          Vacío = sin email. Requiere SMTP configurado en <code class="mono">snapshot.local.conf</code>.
+        </span>
+      </label>
+      <label class="inline-flex items-center gap-2 text-xs text-[var(--muted)]">
+        <input id="al-email-clear" type="checkbox"> Borrar email guardado
+      </label>
+
+      <label class="block">
+        <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+          Webhook URL <span id="al-webhook-state" class="ml-1 text-[var(--muted-2)]"></span>
+        </span>
+        <input id="al-webhook" type="text" class="input mt-1 mono" placeholder="https://hooks.slack.com/...  (vacío = no modificar)">
+        <span class="text-[11px] text-[var(--muted)] block mt-1">
+          POST JSON al disparar/resolver alertas. Compatible con Slack/Discord/PagerDuty incoming webhooks.
+        </span>
+      </label>
+      <label class="inline-flex items-center gap-2 text-xs text-[var(--muted)]">
+        <input id="al-webhook-clear" type="checkbox"> Borrar webhook guardado
+      </label>
+
+      <div class="flex justify-end">
+        <button id="btn-save-alerts" class="btn-primary">Guardar alertas</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Cifrado age (sub-F) -->
   <div class="card">
     <div class="px-5 py-4 border-b border-[var(--border)]">

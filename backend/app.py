@@ -138,7 +138,10 @@ def create_app() -> Flask:
     # el link de navegación solo en deploys de ops).
     @app.context_processor
     def _inject_flags():
-        return {"audit_enabled": Config.AUDIT_ENABLED}
+        return {
+            "audit_enabled": Config.AUDIT_ENABLED,
+            "deploy_mode": Config.MODE,
+        }
 
     @app.context_processor
     def _inject_alerts_count():
