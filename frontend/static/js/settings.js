@@ -290,7 +290,92 @@ $('arch-pwd-show').addEventListener('change', (e) => {
 
 $('refresh-archive').onclick = loadArchiveConfig;
 
+// --- DB backups (sub-E) ---
+async function loadDbConfig() {
+  try {
+    const c = await API.get('/db-archive/config');
+    $('db-targets').value = c.targets || '';
+    $('db-pg-host').value = c.pg_host || '';
+    $('db-pg-port').value = c.pg_port || '5432';
+    $('db-pg-user').value = c.pg_user || '';
+    $('db-pg-pwd-state').textContent = c.pg_password_set ? '(guardada)' : '(no configurada)';
+    $('db-mysql-host').value = c.mysql_host || '';
+    $('db-mysql-port').value = c.mysql_port || '3306';
+    $('db-mysql-user').value = c.mysql_user || '';
+    $('db-mysql-pwd-state').textContent = c.mysql_password_set ? '(guardada)' : '(no configurada)';
+    $('db-mongo-uri-state').textContent = c.mongo_uri_set ? '(guardada)' : '(no configurada)';
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+$('btn-save-db').onclick = async () => {
+  const body = {
+    targets: $('db-targets').value.trim(),
+    pg_host: $('db-pg-host').value.trim(),
+    pg_port: $('db-pg-port').value.trim(),
+    pg_user: $('db-pg-user').value.trim(),
+    pg_password: $('db-pg-pwd').value,
+    clear_pg_password: $('db-pg-pwd-clear').checked,
+    mysql_host: $('db-mysql-host').value.trim(),
+    mysql_port: $('db-mysql-port').value.trim(),
+    mysql_user: $('db-mysql-user').value.trim(),
+    mysql_password: $('db-mysql-pwd').value,
+    clear_mysql_password: $('db-mysql-pwd-clear').checked,
+    mongo_uri: $('db-mongo-uri').value.trim(),
+    clear_mongo_uri: $('db-mongo-uri-clear').checked,
+  };
+  try {
+    await API.post('/db-archive/config', body);
+    toast('Configuración DB guardada', 'success');
+    $('db-pg-pwd').value = ''; $('db-pg-pwd-clear').checked = false;
+    $('db-mysql-pwd').value = ''; $('db-mysql-pwd-clear').checked = false;
+    $('db-mongo-uri').value = ''; $('db-mongo-uri-clear').checked = false;
+    loadDbConfig();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+// --- Crypto / age (sub-F) ---
+async function loadCryptoConfig() {
+  try {
+    const c = await API.get('/crypto/config');
+    $('crypto-recipients').value = c.recipients || '';
+    const chip = $('crypto-mode');
+    const mode = c.active_mode || 'none';
+    chip.textContent = ({ age: 'age (público/privado)', openssl: 'openssl + password', none: 'sin cifrado' })[mode] || mode;
+    chip.className = 'chip ' + ({ age: 'chip-emerald', openssl: 'chip-amber', none: 'chip-slate' })[mode];
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+$('btn-save-crypto').onclick = async () => {
+  try {
+    await API.post('/crypto/config', { recipients: $('crypto-recipients').value });
+    toast('Recipients guardados', 'success');
+    loadCryptoConfig();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+$('btn-keygen').onclick = async () => {
+  if (!confirm('¿Generar un nuevo keypair age? El privado se mostrará una sola vez.')) return;
+  try {
+    const r = await API.post('/crypto/keygen', {});
+    $('kp-pub').value = r.public;
+    $('kp-priv').value = r.private;
+    $('dlg-keypair').showModal();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+$('kp-close').onclick = () => $('dlg-keypair').close();
+$('kp-append').onclick = () => {
+  const cur = $('crypto-recipients').value.trim();
+  const pub = $('kp-pub').value.trim();
+  if (!pub) return;
+  $('crypto-recipients').value = (cur ? cur + ' ' : '') + pub;
+  toast('Pública agregada al campo. Pulsá Guardar recipients para persistir.', 'info');
+  $('dlg-keypair').close();
+};
+
 // --- boot ---
 loadStatus();
 loadConfig();
 loadArchiveConfig();
+loadDbConfig();
+loadCryptoConfig();

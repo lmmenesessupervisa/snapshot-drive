@@ -332,3 +332,66 @@ header.app-header {
 
 /* Focus ring mejorado para accesibilidad */
 :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* ---------- User menu (header) ---------- */
+.user-menu > summary { list-style: none; cursor: pointer; }
+.user-menu > summary::-webkit-details-marker { display: none; }
+
+.user-menu-summary {
+  display: flex; align-items: center; gap: .65rem;
+  padding: .35rem .55rem .35rem .35rem;
+  border-radius: .75rem;
+  border: 1px solid var(--border-color);
+  background: var(--card);
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.user-menu-summary:hover { background: var(--accent-surface); }
+.user-menu[open] > .user-menu-summary {
+  background: var(--accent-surface);
+  border-color: var(--border-hi);
+  box-shadow: var(--shadow-sm);
+}
+.user-avatar {
+  width: 30px; height: 30px; border-radius: .55rem;
+  background: var(--primary); color: var(--primary-foreground);
+  display: grid; place-items: center;
+  font-size: .82rem; font-weight: 600;
+  letter-spacing: -.02em;
+}
+.user-meta { display: flex; flex-direction: column; line-height: 1.1; }
+.user-name { font-size: .82rem; color: var(--foreground); font-weight: 500; max-width: 14rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-role {
+  font-size: .62rem; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted-foreground);
+}
+.user-caret { width: 14px; height: 14px; color: var(--muted-foreground); flex: none; transition: transform .15s ease; }
+.user-menu[open] .user-caret { transform: rotate(180deg); }
+
+.user-menu-panel {
+  position: absolute; right: 0; top: calc(100% + .35rem);
+  min-width: 16rem;
+  background: var(--card);
+  border: 1px solid var(--border-color);
+  border-radius: .75rem;
+  box-shadow: var(--shadow-lg);
+  padding: .35rem;
+  z-index: 30;
+}
+.user-menu-header {
+  padding: .55rem .65rem .65rem;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: .35rem;
+}
+.user-menu-item {
+  display: block; padding: .5rem .65rem;
+  border-radius: .55rem;
+  font-size: .85rem; color: var(--foreground);
+  text-decoration: none; cursor: pointer; border: none; background: transparent;
+}
+.user-menu-item:hover { background: var(--accent-surface); }
+.user-menu-item-danger { color: var(--destructive); }
+.user-menu-item-danger:hover { background: #fde7ec; }
+
+@media (max-width: 640px) {
+  .user-meta { display: none; }
+}

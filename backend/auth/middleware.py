@@ -24,9 +24,9 @@ CSRF_EXEMPT_ENDPOINTS = {
     "auth.reset_consume",
     "auth.mfa_enroll_start",
     "auth.mfa_enroll_confirm",
-    # Audit blueprint — manages its own auth via Flask's signed-cookie
-    # session; doesn't use snapshot_session, so the CSRF token is absent.
-    "audit.login_submit",
+    # Audit blueprint — uses main panel session, but POST /audit/api/refresh
+    # is hit before the page-level CSRF token is bootstrapped on first load,
+    # and the operation is read-only (just invalidates a cache).
     "audit.api_refresh",
     # M2M central API — autenticado con bearer token, no session cookie:
     "central_api.heartbeat",

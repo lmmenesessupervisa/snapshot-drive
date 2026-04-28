@@ -65,7 +65,6 @@ class Config:
 
     # Vista /audit — agregación del shared Drive (solo ops, OFF por defecto).
     AUDIT_ENABLED = (_CONF.get("SNAPSHOT_AUDIT_VIEWER") or os.getenv("SNAPSHOT_AUDIT_VIEWER") or "0") == "1"
-    AUDIT_PASSWORD = os.getenv("AUDIT_PASSWORD") or _CONF.get("AUDIT_PASSWORD", "")
     AUDIT_REMOTE_PATH = os.getenv("AUDIT_REMOTE_PATH") or _CONF.get("AUDIT_REMOTE_PATH") or "snapshots"
     RCLONE_CONFIG = Path(
         os.getenv("RCLONE_CONFIG")

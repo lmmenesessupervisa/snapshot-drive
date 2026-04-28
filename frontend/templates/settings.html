@@ -208,7 +208,166 @@
     </div>
   </div>
 
+  <!-- Cifrado age (sub-F) -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-[var(--border)]">
+      <h2 class="font-semibold">Cifrado con age (recomendado)</h2>
+    </div>
+    <div class="p-5 space-y-4 text-sm">
+      <p class="text-[var(--muted)] text-xs">
+        Si configurás recipients age, los backups se cifran con criptografía de
+        clave pública en vez de password. Ventaja: la clave privada nunca vive
+        en el servidor — solo se usa al restaurar. Si hay recipients age, tienen
+        precedencia sobre <code class="mono">ARCHIVE_PASSWORD</code>.
+        Modo activo: <span id="crypto-mode" class="chip chip-slate">—</span>
+      </p>
+
+      <div class="flex items-center justify-between gap-3">
+        <button id="btn-keygen" class="btn-secondary">Generar nuevo keypair</button>
+        <span class="text-xs text-[var(--muted)]">El privado se muestra una sola vez. Guardalo en un lugar seguro fuera del servidor.</span>
+      </div>
+
+      <label class="block">
+        <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Recipients (claves públicas, separadas por espacios)</span>
+        <textarea id="crypto-recipients" rows="3" class="input mt-1 mono text-xs"
+                  placeholder="age1abc... age1xyz..."></textarea>
+      </label>
+
+      <div class="flex justify-end">
+        <button id="btn-save-crypto" class="btn-primary">Guardar recipients</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DB backups (sub-E) -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-[var(--border)]">
+      <h2 class="font-semibold">Backups de bases de datos</h2>
+      <p class="text-xs text-[var(--muted)] mt-1">
+        Streaming directo: <code class="mono">pg_dump | zstd | crypto | rclone rcat</code>.
+        Sin disco intermedio. El timer <code class="mono">snapshot@db-archive</code>
+        se activa cuando hay al menos un target.
+      </p>
+    </div>
+    <div class="p-5 space-y-4 text-sm">
+      <label class="block">
+        <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Targets</span>
+        <input id="db-targets" type="text" class="input mt-1 mono"
+               placeholder="postgres:mydb mysql:web mongo:metrics">
+        <span class="text-[11px] text-[var(--muted)] block mt-1">
+          Formato: <code>engine:dbname</code> separados por espacios.
+          Engines válidos: <code>postgres</code>, <code>mysql</code>, <code>mongo</code>.
+        </span>
+      </label>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+        <!-- Postgres -->
+        <div class="rounded-lg border border-[var(--border)] p-4 space-y-3">
+          <h3 class="font-semibold text-sm">PostgreSQL</h3>
+          <div class="grid grid-cols-2 gap-2">
+            <label class="block">
+              <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Host</span>
+              <input id="db-pg-host" type="text" class="input mt-1" placeholder="vacío = socket Unix">
+            </label>
+            <label class="block">
+              <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Puerto</span>
+              <input id="db-pg-port" type="text" class="input mt-1 mono" placeholder="5432">
+            </label>
+          </div>
+          <label class="block">
+            <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Usuario</span>
+            <input id="db-pg-user" type="text" class="input mt-1" autocomplete="username">
+          </label>
+          <label class="block">
+            <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+              Password <span id="db-pg-pwd-state" class="ml-1 text-[var(--muted-2)]"></span>
+            </span>
+            <input id="db-pg-pwd" type="password" class="input mt-1 mono" autocomplete="new-password" placeholder="dejar vacío para no modificar">
+          </label>
+          <label class="inline-flex items-center gap-2 text-xs text-[var(--muted)]">
+            <input id="db-pg-pwd-clear" type="checkbox"> Borrar password guardada
+          </label>
+        </div>
+
+        <!-- MySQL -->
+        <div class="rounded-lg border border-[var(--border)] p-4 space-y-3">
+          <h3 class="font-semibold text-sm">MySQL / MariaDB</h3>
+          <div class="grid grid-cols-2 gap-2">
+            <label class="block">
+              <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Host</span>
+              <input id="db-mysql-host" type="text" class="input mt-1" placeholder="localhost">
+            </label>
+            <label class="block">
+              <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Puerto</span>
+              <input id="db-mysql-port" type="text" class="input mt-1 mono" placeholder="3306">
+            </label>
+          </div>
+          <label class="block">
+            <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Usuario</span>
+            <input id="db-mysql-user" type="text" class="input mt-1" autocomplete="username">
+          </label>
+          <label class="block">
+            <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+              Password <span id="db-mysql-pwd-state" class="ml-1 text-[var(--muted-2)]"></span>
+            </span>
+            <input id="db-mysql-pwd" type="password" class="input mt-1 mono" autocomplete="new-password" placeholder="dejar vacío para no modificar">
+          </label>
+          <label class="inline-flex items-center gap-2 text-xs text-[var(--muted)]">
+            <input id="db-mysql-pwd-clear" type="checkbox"> Borrar password guardada
+          </label>
+        </div>
+
+      </div>
+
+      <!-- Mongo -->
+      <div class="rounded-lg border border-[var(--border)] p-4 space-y-3">
+        <h3 class="font-semibold text-sm">MongoDB</h3>
+        <label class="block">
+          <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+            URI de conexión <span id="db-mongo-uri-state" class="ml-1 text-[var(--muted-2)]"></span>
+          </span>
+          <input id="db-mongo-uri" type="text" class="input mt-1 mono"
+                 placeholder='mongodb://user:pass@host:27017/?authSource=admin'>
+          <span class="text-[11px] text-[var(--muted)] block mt-1">
+            Dejar vacío para no modificar el valor actual.
+          </span>
+        </label>
+        <label class="inline-flex items-center gap-2 text-xs text-[var(--muted)]">
+          <input id="db-mongo-uri-clear" type="checkbox"> Borrar URI guardada
+        </label>
+      </div>
+
+      <div class="flex justify-end">
+        <button id="btn-save-db" class="btn-primary">Guardar configuración DB</button>
+      </div>
+    </div>
+  </div>
+
 </div>
+
+<!-- Modal: nuevo keypair -->
+<dialog id="dlg-keypair" class="rounded-lg p-0 bg-transparent">
+  <div class="card p-6 max-w-xl space-y-4">
+    <h2 class="text-lg font-semibold">Nuevo keypair age generado</h2>
+    <div class="p-3 rounded-lg bg-rose-50 border border-rose-300 text-rose-900 text-[12px]">
+      <b>⚠ Copiá el privado AHORA.</b> No se guarda en el servidor y no se vuelve a mostrar.
+      Si lo perdés, no podrás restaurar los backups cifrados con esta clave.
+    </div>
+    <div>
+      <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Public key (pegar en recipients)</span>
+      <textarea id="kp-pub" readonly rows="2" class="input mt-1 mono text-xs"></textarea>
+    </div>
+    <div>
+      <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Private key (anotar fuera del servidor)</span>
+      <textarea id="kp-priv" readonly rows="2" class="input mt-1 mono text-xs"></textarea>
+    </div>
+    <div class="flex justify-end gap-2">
+      <button id="kp-append" class="btn-secondary">Agregar pública a recipients</button>
+      <button id="kp-close" class="btn-primary">Listo, ya la guardé</button>
+    </div>
+  </div>
+</dialog>
 {% endblock %}
 
 {% block scripts %}

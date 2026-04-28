@@ -202,3 +202,164 @@ def set_password(new: str, confirm: str) -> dict:
 def clear_password() -> dict:
     _write_back({"ARCHIVE_PASSWORD": ""})
     return get_config()
+
+
+# ---------------------------------------------------------------------------
+# Sub-E: DB backups
+# ---------------------------------------------------------------------------
+
+DB_ENGINES = ("postgres", "mysql", "mongo")
+_DB_NAME_RE = re.compile(r"^[A-Za-z0-9._\-]+$")
+_DB_TOKEN_RE = re.compile(r"^(postgres|mysql|mongo):[A-Za-z0-9._\-]+$")
+
+
+def _validate_targets(raw: str) -> str:
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    tokens = raw.split()
+    seen: set[str] = set()
+    for t in tokens:
+        if not _DB_TOKEN_RE.match(t):
+            raise ArchiveConfigError(
+                f"Target inválido: {t!r}. Formato: engine:dbname "
+                f"(engine: {', '.join(DB_ENGINES)})."
+            )
+        if t in seen:
+            raise ArchiveConfigError(f"Target duplicado: {t}")
+        seen.add(t)
+    return " ".join(tokens)
+
+
+def _validate_simple(key: str, value: str, *, max_len: int = 256) -> str:
+    v = (value or "").strip()
+    if len(v) > max_len:
+        raise ArchiveConfigError(f"{key}: demasiado largo (máx {max_len}).")
+    if '"' in v or "\n" in v or "\r" in v:
+        raise ArchiveConfigError(f"{key}: no puede contener comillas dobles ni saltos de línea.")
+    return v
+
+
+def _validate_port(key: str, value: str) -> str:
+    v = (value or "").strip()
+    if not v:
+        return ""
+    if not v.isdigit() or not (1 <= int(v) <= 65535):
+        raise ArchiveConfigError(f"{key}: puerto inválido.")
+    return v
+
+
+def get_db_config() -> dict:
+    vals = _read(_local_conf_path())
+    return {
+        "targets":     vals.get("DB_BACKUP_TARGETS", ""),
+        "pg_host":     vals.get("DB_PG_HOST", ""),
+        "pg_port":     vals.get("DB_PG_PORT", "5432"),
+        "pg_user":     vals.get("DB_PG_USER", ""),
+        "pg_password_set":   bool(vals.get("DB_PG_PASSWORD", "")),
+        "mysql_host":  vals.get("DB_MYSQL_HOST", ""),
+        "mysql_port":  vals.get("DB_MYSQL_PORT", "3306"),
+        "mysql_user":  vals.get("DB_MYSQL_USER", ""),
+        "mysql_password_set": bool(vals.get("DB_MYSQL_PASSWORD", "")),
+        "mongo_uri_set":      bool(vals.get("DB_MONGO_URI", "")),
+        "valid_engines": list(DB_ENGINES),
+    }
+
+
+def set_db_config(values: dict) -> dict:
+    updates: dict[str, str] = {
+        "DB_BACKUP_TARGETS": _validate_targets(values.get("targets", "")),
+        "DB_PG_HOST":  _validate_simple("DB_PG_HOST",  values.get("pg_host", "")),
+        "DB_PG_PORT":  _validate_port  ("DB_PG_PORT",  values.get("pg_port", "")) or "5432",
+        "DB_PG_USER":  _validate_simple("DB_PG_USER",  values.get("pg_user", "")),
+        "DB_MYSQL_HOST": _validate_simple("DB_MYSQL_HOST", values.get("mysql_host", "")),
+        "DB_MYSQL_PORT": _validate_port  ("DB_MYSQL_PORT", values.get("mysql_port", "")) or "3306",
+        "DB_MYSQL_USER": _validate_simple("DB_MYSQL_USER", values.get("mysql_user", "")),
+    }
+    # Passwords y URI: solo se actualizan si vienen NO vacías. Para borrar,
+    # el frontend pasa explícitamente clear_pg_password=true (etc.).
+    if values.get("pg_password"):
+        updates["DB_PG_PASSWORD"] = _validate_simple("DB_PG_PASSWORD", values["pg_password"])
+    elif values.get("clear_pg_password"):
+        updates["DB_PG_PASSWORD"] = ""
+    if values.get("mysql_password"):
+        updates["DB_MYSQL_PASSWORD"] = _validate_simple("DB_MYSQL_PASSWORD", values["mysql_password"])
+    elif values.get("clear_mysql_password"):
+        updates["DB_MYSQL_PASSWORD"] = ""
+    if values.get("mongo_uri"):
+        updates["DB_MONGO_URI"] = _validate_simple("DB_MONGO_URI", values["mongo_uri"], max_len=1024)
+    elif values.get("clear_mongo_uri"):
+        updates["DB_MONGO_URI"] = ""
+    _write_back(updates)
+    return get_db_config()
+
+
+# ---------------------------------------------------------------------------
+# Sub-F: age crypto recipients
+# ---------------------------------------------------------------------------
+
+_AGE_PUB_RE = re.compile(r"^age1[0-9a-z]{10,}$")
+
+
+def _validate_recipients(raw: str) -> str:
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    parts = raw.split()
+    for p in parts:
+        if not _AGE_PUB_RE.match(p):
+            raise ArchiveConfigError(
+                f"Recipient inválido: {p!r}. Debe empezar con 'age1' "
+                "(generá con 'snapctl crypto-keygen' o desde la UI)."
+            )
+    return " ".join(parts)
+
+
+def get_crypto_config() -> dict:
+    vals = _read(_local_conf_path())
+    recipients = vals.get("ARCHIVE_AGE_RECIPIENTS", "").strip()
+    return {
+        "recipients": recipients,
+        "recipients_count": len([r for r in recipients.split() if r]),
+        "openssl_password_set": bool(vals.get("ARCHIVE_PASSWORD", "")),
+        "active_mode": (
+            "age" if recipients
+            else ("openssl" if vals.get("ARCHIVE_PASSWORD") else "none")
+        ),
+    }
+
+
+def set_recipients(raw: str) -> dict:
+    _write_back({"ARCHIVE_AGE_RECIPIENTS": _validate_recipients(raw)})
+    return get_crypto_config()
+
+
+def generate_keypair() -> dict:
+    """Run age-keygen and return public + private. Does NOT persist the
+    private key — it's the caller's responsibility to copy it now.
+    """
+    import subprocess
+    age_keygen = Config.SNAPSHOT_ROOT / "bundle" / "bin" / "age-keygen"
+    if not age_keygen.is_file() or not os.access(age_keygen, os.X_OK):
+        raise ArchiveConfigError(
+            "age-keygen no instalado en bundle/bin/. Re-ejecutá install.sh."
+        )
+    try:
+        out = subprocess.run(
+            [str(age_keygen)], capture_output=True, text=True, timeout=10, check=True
+        )
+    except subprocess.CalledProcessError as e:
+        raise ArchiveConfigError(f"age-keygen falló: {e.stderr or e.stdout}") from e
+    pub = ""
+    priv = ""
+    for line in (out.stdout or "").splitlines():
+        line = line.rstrip()
+        m = re.match(r"^# public key:\s*(\S+)$", line)
+        if m:
+            pub = m.group(1)
+            continue
+        if line.startswith("AGE-SECRET-KEY-"):
+            priv = line
+    if not pub or not priv:
+        raise ArchiveConfigError("salida de age-keygen no parseable")
+    return {"public": pub, "private": priv}

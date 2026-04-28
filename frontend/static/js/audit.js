@@ -230,7 +230,7 @@ async function fetchStatus(force = false) {
   try {
     const url = "/audit/api/status" + (force ? "?force=1" : "");
     const resp = await fetch(url, { credentials: "same-origin" });
-    if (resp.status === 401) { location.href = "/audit/login"; return; }
+    if (resp.status === 401) { location.href = "/auth/login"; return; }
     const body = await resp.json();
     if (!body.ok) throw new Error(body.error || "error desconocido");
     STATE.data = body;

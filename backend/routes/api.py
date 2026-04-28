@@ -250,6 +250,55 @@ def archive_password_clear():
         return _err(str(e), 400)
 
 
+# ---------- DB backups (sub-E) ----------
+@api_bp.get("/db-archive/config")
+@require_role("admin")
+def db_archive_config_get():
+    return _ok(archive_config.get_db_config())
+
+
+@api_bp.post("/db-archive/config")
+@require_role("admin")
+def db_archive_config_set():
+    payload = request.get_json(silent=True) or {}
+    try:
+        res = archive_config.set_db_config(payload)
+        _db().audit("api", "db-archive-config", f"targets={res['targets']!r}")
+        return _ok(res)
+    except ArchiveConfigError as e:
+        return _err(str(e), 400)
+
+
+# ---------- Crypto / age recipients (sub-F) ----------
+@api_bp.get("/crypto/config")
+@require_role("admin")
+def crypto_config_get():
+    return _ok(archive_config.get_crypto_config())
+
+
+@api_bp.post("/crypto/config")
+@require_role("admin")
+def crypto_config_set():
+    payload = request.get_json(silent=True) or {}
+    try:
+        res = archive_config.set_recipients(payload.get("recipients") or "")
+        _db().audit("api", "crypto-recipients", f"count={res['recipients_count']}")
+        return _ok(res)
+    except ArchiveConfigError as e:
+        return _err(str(e), 400)
+
+
+@api_bp.post("/crypto/keygen")
+@require_role("admin")
+def crypto_keygen():
+    try:
+        res = archive_config.generate_keypair()
+        _db().audit("api", "crypto-keygen", "generated (not persisted)")
+        return _ok(res)
+    except ArchiveConfigError as e:
+        return _err(str(e), 500)
+
+
 # ---------- Archive: operaciones ----------
 @api_bp.get("/archive/list")
 @require_any_role("admin", "operator")
