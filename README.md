@@ -452,6 +452,73 @@ opcional. Falla silenciosa si SMTP/webhook no configurado o caído.
 - `backup_shrink` → critical si shrink >50%, warning entre 20-50%.
 - `folder_missing` → siempre warning.
 
+## Backups de bases de datos
+
+`snapctl db-archive` respalda Postgres / MySQL / MongoDB en streaming
+directo a Drive con la misma taxonomía que el archive de FS pero en
+sub-carpeta `db/<engine>/<dbname>/`:
+
+```
+PROYECTO/ENTORNO/PAIS/db/postgres/mydb/2026/04/27/
+    servidor_mydb_20260427_030010.sql.zst[.enc]
+```
+
+### Engines soportados
+
+| Engine | Tool requerido | Comando dump |
+|---|---|---|
+| postgres | `pg_dump` | `pg_dump --no-owner --no-acl --quote-all-identifiers <db>` |
+| mysql / mariadb | `mysqldump` | `mysqldump --single-transaction --quick --routines --triggers --events <db>` |
+| mongo | `mongodump` | `mongodump --uri=$DB_MONGO_URI --archive --db=<db>` |
+
+snapshot-V3 **no instala** las herramientas — el operador las instala
+con `apt install postgresql-client mysql-client mongodb-database-tools`.
+Si el binario no está, ese target se salta con un warning + heartbeat
+fail; los demás targets continúan.
+
+### Configuración
+
+En `/etc/snapshot-v3/snapshot.local.conf`:
+
+```bash
+DB_BACKUP_TARGETS="postgres:mydb postgres:other mysql:web mongo:metrics"
+
+DB_PG_HOST="localhost"; DB_PG_USER="postgres"; DB_PG_PASSWORD="..."
+DB_MYSQL_HOST="localhost"; DB_MYSQL_USER="root"; DB_MYSQL_PASSWORD="..."
+DB_MONGO_URI="mongodb://user:pass@localhost:27017"
+```
+
+### Schedule
+
+Default: diario 03:00 UTC vía `snapshot@db-archive.timer`. Editable
+desde el panel (Programación) — `db-archive` está en
+`SUPPORTED_UNITS` del scheduler. `install.sh` activa el timer **solo
+si** `DB_BACKUP_TARGETS` no está vacío al momento del install.
+
+### CLI
+
+```bash
+sudo snapctl db-archive                          # ejecuta todos los targets
+sudo snapctl db-archive-list                     # lista dumps en Drive
+sudo snapctl db-archive-list --json
+sudo snapctl db-archive-restore <path>           # dry-run (imprime cmd)
+sudo snapctl db-archive-restore <path> --target mydb  # ejecuta restore
+```
+
+### Cifrado
+
+Reusa `ARCHIVE_PASSWORD` del archive de FS. Si está seteada, los dumps
+se cifran con AES-256-CBC + PBKDF2 100k antes de subir. **Mismo trade-off
+que el archive de FS**: si la rotás, los dumps viejos siguen necesitando
+la password vieja para descifrarlos.
+
+### Heartbeat al central (sub-B)
+
+Cada target emite un heartbeat al central con `target.category="db"`,
+`subkey=<engine>`, `label=<dbname>`. El dashboard agregado los muestra
+junto a los OS targets. Las alertas (sub-D) — `no_heartbeat`,
+`backup_shrink` — aplican igual a DB targets.
+
 ## CLI (`snapctl`)
 
 Subcomandos del flujo archive (producción):

@@ -104,3 +104,24 @@ ALERTS_SHRINK_PCT="20"
 ALERTS_EMAIL=""
 # Webhook POST JSON opcional (Slack/Discord/PagerDuty webhook URL):
 ALERTS_WEBHOOK=""
+
+# --- Sub-E: DB backups ---------------------------------------------------
+# Lista space-separated de "engine:dbname" (engines: postgres, mysql, mongo).
+# Vacío = no DB backups, no se activa el timer.
+DB_BACKUP_TARGETS=""
+
+# Postgres connection. Si DB_PG_HOST está vacío, pg_dump usa socket Unix.
+DB_PG_HOST=""
+DB_PG_PORT="5432"
+DB_PG_USER=""
+DB_PG_PASSWORD=""
+
+# MySQL / MariaDB:
+DB_MYSQL_HOST=""
+DB_MYSQL_PORT="3306"
+DB_MYSQL_USER=""
+DB_MYSQL_PASSWORD=""
+
+# MongoDB URI completo (incluye auth):
+# mongodb://user:pass@host:27017/?authSource=admin
+DB_MONGO_URI=""

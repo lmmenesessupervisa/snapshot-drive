@@ -114,6 +114,25 @@ class Config:
     # Tope duro de payload aceptado por el endpoint POST /heartbeat
     CENTRAL_MAX_PAYLOAD_BYTES = 64 * 1024
 
+    # ─── Sub-proyecto E: DB backups ──────────────────────────────────────
+    # Lista space-separated de "engine:dbname". Vacío = no DB backups.
+    DB_BACKUP_TARGETS = (
+        os.getenv("DB_BACKUP_TARGETS")
+        or _CONF.get("DB_BACKUP_TARGETS", "")
+    )
+    # Postgres connection (env vars también respetadas por pg_dump):
+    DB_PG_HOST = os.getenv("DB_PG_HOST") or _CONF.get("DB_PG_HOST", "")
+    DB_PG_PORT = os.getenv("DB_PG_PORT") or _CONF.get("DB_PG_PORT", "5432")
+    DB_PG_USER = os.getenv("DB_PG_USER") or _CONF.get("DB_PG_USER", "")
+    DB_PG_PASSWORD = os.getenv("DB_PG_PASSWORD") or _CONF.get("DB_PG_PASSWORD", "")
+    # MySQL:
+    DB_MYSQL_HOST = os.getenv("DB_MYSQL_HOST") or _CONF.get("DB_MYSQL_HOST", "")
+    DB_MYSQL_PORT = os.getenv("DB_MYSQL_PORT") or _CONF.get("DB_MYSQL_PORT", "3306")
+    DB_MYSQL_USER = os.getenv("DB_MYSQL_USER") or _CONF.get("DB_MYSQL_USER", "")
+    DB_MYSQL_PASSWORD = os.getenv("DB_MYSQL_PASSWORD") or _CONF.get("DB_MYSQL_PASSWORD", "")
+    # Mongo URI completo (incluye auth):
+    DB_MONGO_URI = os.getenv("DB_MONGO_URI") or _CONF.get("DB_MONGO_URI", "")
+
 
 # --- Auth ---
 import secrets
