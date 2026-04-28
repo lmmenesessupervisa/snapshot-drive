@@ -100,6 +100,19 @@ class Config:
     # Tope duro de payload aceptado por el endpoint POST /heartbeat
     CENTRAL_MAX_PAYLOAD_BYTES = 64 * 1024
 
+    # ─── Sub-proyecto F: cifrado age (opt-in) ────────────────────────────
+    # Recipients públicos space-separated. Si está seteado, age toma
+    # precedencia sobre ARCHIVE_PASSWORD para los backups nuevos.
+    ARCHIVE_AGE_RECIPIENTS = (
+        os.getenv("ARCHIVE_AGE_RECIPIENTS")
+        or _CONF.get("ARCHIVE_AGE_RECIPIENTS", "")
+    )
+    # Path al archivo de identidad (privada). Solo se usa en restore.
+    ARCHIVE_AGE_IDENTITY_FILE = (
+        os.getenv("ARCHIVE_AGE_IDENTITY_FILE")
+        or _CONF.get("ARCHIVE_AGE_IDENTITY_FILE", "")
+    )
+
 
 # --- Auth ---
 import secrets
