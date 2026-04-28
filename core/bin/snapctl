@@ -157,7 +157,7 @@ cmd_crypto_keygen() {
     local out; out="$("$age_keygen" 2>&1)"
     local pub priv
     pub="$(echo "$out" | awk -F': ' '/# public key:/{print $2}' | tr -d ' ')"
-    priv="$(echo "$out" | grep -v '^#' | head -1)"
+    priv="$(echo "$out" | grep '^AGE-SECRET-KEY-' | head -1)"
 
     cat <<EOF
 
