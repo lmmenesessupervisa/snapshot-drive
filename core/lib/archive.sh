@@ -44,7 +44,13 @@ _archive_build_path() {
     local nombre="${BACKUP_NOMBRE:-$HOSTNAME}"
     local year="${ts:0:4}" month="${ts:4:2}" day="${ts:6:2}"
     local ext="tar.zst"
-    [[ -n "${ARCHIVE_PASSWORD:-}" ]] && ext="tar.zst.enc"
+    if declare -F crypto_extension >/dev/null 2>&1; then
+        local crypto_ext; crypto_ext="$(crypto_extension)"
+        [[ -n "$crypto_ext" ]] && ext="${ext}.${crypto_ext}"
+    elif [[ -n "${ARCHIVE_PASSWORD:-}" ]]; then
+        # Fallback si crypto.sh no está sourceado (compat con tests aislados).
+        ext="tar.zst.enc"
+    fi
     printf '%s/%s/%s/%s/servidor_%s_%s.%s' \
         "$(_archive_remote_base)" "$year" "$month" "$day" \
         "$nombre" "$ts" "$ext"
@@ -104,22 +110,14 @@ cmd_archive() {
     local save_opts; save_opts="$(set +o | grep pipefail)"
     set -o pipefail
 
-    if $encrypted; then
-        # tar crea el archivo → zstd comprime → openssl encripta → rclone sube
-        # ARCHIVE_PASSWORD se lee via env:VAR (nunca en argv, nunca en ps).
-        tar -cf - --warning=no-file-changed --warning=no-file-removed \
-                --exclude-from="$EXCLUDES_FILE" "${paths[@]}" 2>/dev/null \
-            | zstd -T0 -10 -q \
-            | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -pass env:ARCHIVE_PASSWORD \
-            | rclone --config "$RCLONE_CONFIG" rcat "${RCLONE_REMOTE}:${remote_path}" \
-            || rc=$?
-    else
-        tar -cf - --warning=no-file-changed --warning=no-file-removed \
-                --exclude-from="$EXCLUDES_FILE" "${paths[@]}" 2>/dev/null \
-            | zstd -T0 -10 -q \
-            | rclone --config "$RCLONE_CONFIG" rcat "${RCLONE_REMOTE}:${remote_path}" \
-            || rc=$?
-    fi
+    # tar → zstd → crypto_encrypt_pipe (age|openssl|cat) → rclone rcat.
+    # ARCHIVE_PASSWORD se lee via env:VAR (nunca en argv, nunca en ps).
+    tar -cf - --warning=no-file-changed --warning=no-file-removed \
+            --exclude-from="$EXCLUDES_FILE" "${paths[@]}" 2>/dev/null \
+        | zstd -T0 -10 -q \
+        | crypto_encrypt_pipe \
+        | rclone --config "$RCLONE_CONFIG" rcat "${RCLONE_REMOTE}:${remote_path}" \
+        || rc=$?
 
     eval "$save_opts"
 
@@ -240,18 +238,13 @@ cmd_archive_restore() {
     set -o pipefail
     local rc=0
 
-    if $encrypted; then
-        rclone --config "$RCLONE_CONFIG" cat "${RCLONE_REMOTE}:${remote_path}" \
-            | openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -pass env:ARCHIVE_PASSWORD \
-            | zstd -d -T0 \
-            | tar -xf - -C "$target" \
-            || rc=$?
-    else
-        rclone --config "$RCLONE_CONFIG" cat "${RCLONE_REMOTE}:${remote_path}" \
-            | zstd -d -T0 \
-            | tar -xf - -C "$target" \
-            || rc=$?
-    fi
+    # crypto_decrypt_for_path detecta por extensión (.age, .enc) y elige
+    # la herramienta. Si el path no termina en ninguna, hace passthrough.
+    rclone --config "$RCLONE_CONFIG" cat "${RCLONE_REMOTE}:${remote_path}" \
+        | crypto_decrypt_for_path "$remote_path" \
+        | zstd -d -T0 \
+        | tar -xf - -C "$target" \
+        || rc=$?
 
     eval "$save_opts"
     local dur=$(( $(date +%s) - start_ts ))

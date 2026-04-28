@@ -18,6 +18,8 @@ source "${SNAPSHOT_ROOT}/core/lib/drive.sh"
 source "${SNAPSHOT_ROOT}/core/lib/archive.sh"
 # shellcheck disable=SC1091
 [[ -f "${SNAPSHOT_ROOT}/core/lib/central.sh" ]] && source "${SNAPSHOT_ROOT}/core/lib/central.sh"
+# shellcheck disable=SC1091
+[[ -f "${SNAPSHOT_ROOT}/core/lib/crypto.sh" ]] && source "${SNAPSHOT_ROOT}/core/lib/crypto.sh"
 
 trap 'log_error "snapctl interrumpido en línea $LINENO"; exit 1' ERR
 trap '_release_on_abort' INT TERM
