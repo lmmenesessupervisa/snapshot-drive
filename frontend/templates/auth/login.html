@@ -20,8 +20,8 @@
   </script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
-<body class="h-full font-sans antialiased flex items-center justify-center">
-  <div class="w-full max-w-md p-8 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+<body class="h-full font-sans antialiased flex items-center justify-center p-4">
+  <div class="card w-full max-w-md p-8">
     <div class="flex items-center gap-3 mb-6">
       <div class="brand-logo">S</div>
       <div>
@@ -29,29 +29,28 @@
         <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">backup manager</div>
       </div>
     </div>
-    <h1 class="text-xl font-semibold mb-4">Iniciar sesión</h1>
+    <h1 class="text-xl font-semibold mb-1">Iniciar sesión</h1>
+    <p class="text-sm text-[var(--muted)] mb-5">Accedé con tu cuenta del panel.</p>
     <form id="login-form" class="space-y-4">
       <div>
         <label class="block text-sm mb-1">Email</label>
-        <input name="email" type="email" required autofocus autocomplete="email"
-               class="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm">
+        <input name="email" type="email" required autofocus autocomplete="email" class="input">
       </div>
       <div>
         <label class="block text-sm mb-1">Contraseña</label>
-        <input name="password" type="password" required autocomplete="current-password"
-               class="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm">
+        <input name="password" type="password" required autocomplete="current-password" class="input">
       </div>
       <div id="mfa-block" class="hidden">
         <label class="block text-sm mb-1">Código MFA</label>
         <input name="mfa_code" type="text" autocomplete="one-time-code" inputmode="numeric"
                placeholder="6 dígitos o código de respaldo"
-               class="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm font-mono">
+               class="input mono">
       </div>
-      <button type="submit"
-              class="w-full rounded bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 text-sm font-medium">
-        Entrar
-      </button>
-      <p id="login-error" class="hidden text-sm text-rose-400"></p>
+      <button type="submit" class="btn-primary w-full justify-center">Entrar</button>
+      <p id="login-error" class="hidden text-sm text-rose-500"></p>
+      <div class="text-xs text-[var(--muted)] text-center pt-2">
+        <a href="/auth/reset-request" class="text-brand-500 hover:underline">¿Olvidaste tu contraseña?</a>
+      </div>
     </form>
   </div>
 <script>

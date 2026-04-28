@@ -2,139 +2,56 @@
 {% block title %}Usuarios{% endblock %}
 {% block header %}Usuarios{% endblock %}
 {% block content %}
-<div class="space-y-4">
-  <div class="flex items-center justify-between">
-    <p class="text-sm text-[var(--muted)]">
-      Gestión de cuentas para acceder al panel. Solo admins pueden modificar usuarios.
-    </p>
-    <button id="btn-create"
-            class="rounded bg-brand-600 hover:bg-brand-700 text-white px-3 py-2 text-sm font-medium">
-      + Crear usuario
-    </button>
-  </div>
-
-  <div class="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+<div class="max-w-5xl space-y-6">
+  <div class="card">
+    <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+      <div>
+        <h2 class="font-semibold">Cuentas del panel</h2>
+        <p class="text-xs text-[var(--muted)] mt-1">
+          Solo administradores pueden crear, modificar o resetear cuentas.
+        </p>
+      </div>
+      <button id="btn-create" class="btn-primary">+ Crear usuario</button>
+    </div>
     <table class="w-full text-sm">
-      <thead class="bg-[var(--bg)] text-left text-xs uppercase tracking-wider text-[var(--muted)]">
+      <thead>
         <tr>
-          <th class="py-2 px-4">Email</th>
-          <th class="py-2 px-4">Nombre</th>
-          <th class="py-2 px-4">Rol</th>
-          <th class="py-2 px-4">MFA</th>
-          <th class="py-2 px-4">Estado</th>
-          <th class="py-2 px-4">Último login</th>
-          <th class="py-2 px-4 text-right">Acciones</th>
+          <th class="text-left">Email</th>
+          <th class="text-left">Nombre</th>
+          <th class="text-left">Rol</th>
+          <th class="text-left">MFA</th>
+          <th class="text-left">Estado</th>
+          <th class="text-left">Último login</th>
+          <th class="text-right">Acciones</th>
         </tr>
       </thead>
-      <tbody id="rows"></tbody>
+      <tbody id="rows">
+        <tr><td colspan="7" class="text-center text-[var(--muted)]">Cargando…</td></tr>
+      </tbody>
     </table>
   </div>
 </div>
 
-<dialog id="dlg-create" class="rounded-lg p-6 bg-[var(--surface)] text-[var(--fg)] border border-[var(--border)]">
-  <form id="form-create" class="space-y-3 min-w-[20rem]">
+<dialog id="dlg-create" class="rounded-lg p-0 bg-transparent">
+  <form id="form-create" class="card p-6 space-y-3 min-w-[22rem]">
     <h2 class="text-lg font-semibold">Crear usuario</h2>
-    <input name="email" type="email" placeholder="email" required
-           class="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm">
-    <input name="display_name" type="text" placeholder="nombre" required
-           class="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm">
-    <select name="role" class="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm">
+    <input name="email" type="email" placeholder="email" required class="input">
+    <input name="display_name" type="text" placeholder="nombre" required class="input">
+    <select name="role" class="input">
       <option value="operator">operator</option>
       <option value="auditor">auditor</option>
       <option value="admin">admin</option>
     </select>
-    <input name="password" type="text" placeholder="contraseña inicial (vacío = aleatoria)"
-           class="w-full rounded border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm font-mono">
+    <input name="password" type="text"
+           placeholder="contraseña inicial (vacío = aleatoria)"
+           class="input mono">
     <div class="flex justify-end gap-2 pt-2">
-      <button type="button" id="cancel-create"
-              class="rounded border border-[var(--border)] px-3 py-2 text-sm">
-        Cancelar
-      </button>
-      <button type="submit"
-              class="rounded bg-brand-600 hover:bg-brand-700 text-white px-3 py-2 text-sm">
-        Crear
-      </button>
+      <button type="button" id="cancel-create" class="btn-secondary">Cancelar</button>
+      <button type="submit" class="btn-primary">Crear</button>
     </div>
-    <p id="create-msg" class="hidden text-sm text-rose-400"></p>
+    <p id="create-msg" class="hidden text-sm text-rose-500"></p>
   </form>
 </dialog>
 
-<script>
-async function load() {
-  const r = await apiFetch("/auth/users");
-  const j = await r.json();
-  const tb = document.getElementById("rows");
-  tb.innerHTML = "";
-  j.users.forEach((u) => {
-    const tr = document.createElement("tr");
-    tr.className = "border-t border-[var(--border)]";
-    tr.innerHTML = `
-      <td class="py-2 px-4 font-mono">${u.email}</td>
-      <td class="py-2 px-4">${u.display_name}</td>
-      <td class="py-2 px-4 uppercase tracking-wider text-xs">${u.role}</td>
-      <td class="py-2 px-4">${u.mfa_enrolled ? '✓' : '—'}</td>
-      <td class="py-2 px-4">${u.status}</td>
-      <td class="py-2 px-4 text-xs">${u.last_login_at || '—'}</td>
-      <td class="py-2 px-4 text-right space-x-1">
-        <button data-id="${u.id}" data-act="reset-password"
-                class="rounded border border-[var(--border)] px-2 py-1 text-xs hover:bg-black/5">Reset PWD</button>
-        <button data-id="${u.id}" data-act="revoke-sessions"
-                class="rounded border border-[var(--border)] px-2 py-1 text-xs hover:bg-black/5">Cerrar sesiones</button>
-        <button data-id="${u.id}" data-act="reset-mfa"
-                class="rounded border border-[var(--border)] px-2 py-1 text-xs hover:bg-black/5">Reset MFA</button>
-        <button data-id="${u.id}" data-act="${u.status === 'active' ? 'disable' : 'enable'}"
-                class="rounded border border-[var(--border)] px-2 py-1 text-xs hover:bg-black/5">
-          ${u.status === 'active' ? 'Deshabilitar' : 'Habilitar'}
-        </button>
-      </td>`;
-    tb.appendChild(tr);
-  });
-}
-
-document.addEventListener("click", async (e) => {
-  const b = e.target.closest("button[data-act]");
-  if (!b) return;
-  const id = b.dataset.id;
-  const act = b.dataset.act;
-  if (act === 'reset-password' && !confirm("¿Generar nueva contraseña?")) return;
-  if (act === 'reset-mfa' && !confirm("¿Resetear MFA del usuario?")) return;
-  if (act === 'revoke-sessions' && !confirm("¿Cerrar todas las sesiones?")) return;
-  if (act === 'disable' && !confirm("¿Deshabilitar cuenta?")) return;
-  const r = await apiFetch(`/auth/users/${id}/${act}`, {method: "POST"});
-  const j = await r.json();
-  if (j.temp_password) {
-    alert(`Contraseña temporal:\n\n${j.temp_password}\n\nCopiala — no se vuelve a mostrar.`);
-  }
-  load();
-});
-
-document.getElementById("btn-create").addEventListener("click",
-    () => document.getElementById("dlg-create").showModal());
-document.getElementById("cancel-create").addEventListener("click",
-    () => document.getElementById("dlg-create").close());
-
-document.getElementById("form-create").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const data = Object.fromEntries(new FormData(e.target));
-  if (!data.password) delete data.password;
-  const r = await apiFetch("/auth/users", {
-    method: "POST", body: JSON.stringify(data),
-  });
-  const j = await r.json();
-  if (r.ok) {
-    if (j.initial_password) {
-      alert(`Usuario creado.\nContraseña inicial:\n\n${j.initial_password}\n\nCopiala — no se vuelve a mostrar.`);
-    }
-    document.getElementById("dlg-create").close();
-    e.target.reset();
-    load();
-  } else {
-    const p = document.getElementById("create-msg");
-    p.textContent = j.error || "Error";
-    p.classList.remove("hidden");
-  }
-});
-
-load();
-</script>
+<script src="{{ url_for('static', filename='js/users.js') }}" defer></script>
 {% endblock %}
