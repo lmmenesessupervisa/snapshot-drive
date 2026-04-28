@@ -22,12 +22,14 @@ from flask import Blueprint, abort, g, jsonify, redirect, render_template, reque
 
 from ..config import Config
 from ..services.audit import AuditError, AuditService, client_to_dict
+from ..services.audit_tree import AuditTreeError, AuditTreeService
 
 log = logging.getLogger(__name__)
 
 audit_bp = Blueprint("audit", __name__, url_prefix="/audit")
 
 _service: AuditService | None = None
+_tree_service: AuditTreeService | None = None
 
 _ALLOWED_ROLES = ("admin", "auditor")
 
@@ -42,6 +44,18 @@ def _svc() -> AuditService:
             remote_path=Config.AUDIT_REMOTE_PATH,
         )
     return _service
+
+
+def _tree_svc() -> AuditTreeService:
+    global _tree_service
+    if _tree_service is None:
+        _tree_service = AuditTreeService(
+            rclone_bin=Config.RCLONE_BIN,
+            rclone_config=Config.RCLONE_CONFIG,
+            remote=Config.RCLONE_REMOTE,
+            remote_path=Config.AUDIT_REMOTE_PATH,
+        )
+    return _tree_service
 
 
 @audit_bp.before_request
@@ -111,4 +125,16 @@ def api_status():
 @require_role
 def api_refresh():
     _svc().invalidate_cache()
+    _tree_svc().invalidate_cache()
     return jsonify(ok=True)
+
+
+@audit_bp.get("/api/tree")
+@require_role
+def api_tree():
+    """Vista jerárquica por proyecto/entorno/país/cliente/tipo-de-backup."""
+    force = request.args.get("force") == "1"
+    try:
+        return jsonify(ok=True, **_tree_svc().build_tree(force=force))
+    except AuditTreeError as e:
+        return jsonify(ok=False, error=str(e)), 502
