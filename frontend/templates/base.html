@@ -25,6 +25,12 @@
   <script src="{{ url_for('static', filename='js/auth.js') }}" defer></script>
 </head>
 <body class="h-full font-sans antialiased">
+  {% if central_alerts_critical and central_alerts_critical > 0 %}
+  <div class="bg-rose-600 text-white text-sm px-4 py-2 text-center">
+    🚨 {{ central_alerts_critical }} alerta(s) crítica(s) activa(s) —
+    <a href="/dashboard-central/alerts" class="underline">ver alertas</a>
+  </div>
+  {% endif %}
   <div class="flex h-full">
     <!-- Sidebar -->
     <aside class="w-64 flex flex-col">

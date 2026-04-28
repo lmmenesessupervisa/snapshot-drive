@@ -706,7 +706,8 @@ main() {
                 send)             "$pybin" -m backend.central.cli send "$@" ;;
                 drain|drain-queue) "$pybin" -m backend.central.cli drain ;;
                 status)           "$pybin" -m backend.central.cli status ;;
-                *) echo "snapctl central {send <file>|drain-queue|status}" >&2; exit 2 ;;
+                alerts-sweep)     "$pybin" -m backend.central.cli alerts-sweep ;;
+                *) echo "snapctl central {send <file>|drain-queue|status|alerts-sweep}" >&2; exit 2 ;;
             esac
             ;;
         help|-h|--help)    usage ;;

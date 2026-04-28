@@ -128,15 +128,30 @@ def create_app() -> Flask:
         from .central.api import central_api_bp
         from .central.admin import central_admin_bp
         from .central.dashboard import central_dashboard_bp
+        from .central.alerts import alerts_bp as central_alerts_bp
         app.register_blueprint(central_api_bp)
         app.register_blueprint(central_admin_bp)
         app.register_blueprint(central_dashboard_bp)
+        app.register_blueprint(central_alerts_bp)
 
     # Expón a las plantillas si /audit está habilitado (sirve para mostrar
     # el link de navegación solo en deploys de ops).
     @app.context_processor
     def _inject_flags():
         return {"audit_enabled": Config.AUDIT_ENABLED}
+
+    @app.context_processor
+    def _inject_alerts_count():
+        if Config.MODE != "central":
+            return {"central_alerts_critical": 0}
+        try:
+            from .central.alerts import store as alerts_store
+            return {
+                "central_alerts_critical":
+                    alerts_store.count_active_critical(app.config["DB_CONN"])
+            }
+        except Exception:
+            return {"central_alerts_critical": 0}
 
     @app.errorhandler(404)
     def _404(e):

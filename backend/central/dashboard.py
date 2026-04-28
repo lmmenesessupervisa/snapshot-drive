@@ -1,8 +1,9 @@
 """Vista HTML agregada del central."""
-from flask import Blueprint, current_app, render_template
+from flask import Blueprint, current_app, render_template, request
 
 from . import models as m
 from . import tokens as tok
+from .alerts import store as alerts_store
 from .permissions import require_central_perm
 
 central_dashboard_bp = Blueprint(
@@ -51,3 +52,16 @@ def tokens_page(cid):
         "central/tokens.html",
         client=client, tokens=tok.list_active(db, cid),
     )
+
+
+@central_dashboard_bp.get("/dashboard-central/alerts")
+@require_central_perm("central.dashboard:view")
+def alerts_page():
+    db = current_app.config["DB_CONN"]
+    status_filter = request.args.get("status", "active")
+    if status_filter == "active":
+        rows = alerts_store.list_active(db)
+    else:
+        rows = alerts_store.list_recent(db, limit=500)
+    return render_template("central/alerts.html",
+                           rows=rows, status_filter=status_filter)

@@ -12,3 +12,5 @@ ExecStart=/bin/bash -c '\
 # Drena la cola local de heartbeats hacia el central (no-op si MODE=central
 # o si CENTRAL_URL/CENTRAL_TOKEN no están configurados).
 ExecStartPost=-/opt/snapshot-V3/core/bin/snapctl central drain-queue
+# Sweep no_heartbeat alerts (no-op si MODE!=central):
+ExecStartPost=-/opt/snapshot-V3/core/bin/snapctl central alerts-sweep

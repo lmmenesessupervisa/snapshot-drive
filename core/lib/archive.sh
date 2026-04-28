@@ -85,16 +85,28 @@ cmd_archive() {
 
     log_info "Archive iniciado → ${RCLONE_REMOTE}:${remote_path} (encrypted=${encrypted})"
 
-    # Construye la lista de paths a empacar. Omite los que no existen.
+    # Construye la lista de paths a empacar. Omite los que no existen y
+    # acumula los faltantes para reportarlos en el heartbeat al central
+    # (sub-D regla folder_missing).
     local -a paths=()
+    local -a missing_paths=()
     for p in $BACKUP_PATHS; do
         if [[ -e "$p" ]]; then
             paths+=("$p")
         else
             log_warn "Ruta no existe, se omite del archive: $p"
+            missing_paths+=("$p")
         fi
     done
     [[ ${#paths[@]} -gt 0 ]] || die "Ninguna ruta válida en BACKUP_PATHS"
+
+    # JSON array para enviar en host_meta.missing_paths del heartbeat.
+    local missing_json="[]"
+    if [[ ${#missing_paths[@]} -gt 0 ]]; then
+        missing_json="$(printf '%s\n' "${missing_paths[@]}" \
+            | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')"
+    fi
+    export MISSING_PATHS_JSON="$missing_json"
 
     local start_ts; start_ts="$(date +%s)"
     local rc=0

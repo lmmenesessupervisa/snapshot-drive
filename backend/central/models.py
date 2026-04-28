@@ -154,10 +154,49 @@ def apply_heartbeat(conn, payload: dict, *, token_id: int, client_id: int,
         except sqlite3.IntegrityError:
             event_inserted = False
 
+        # Capture prev total_size_bytes BEFORE commit for shrink detection
+        prev_total = row[1] if row is not None else None
+
         conn.commit()
     except Exception:
         conn.rollback()
         raise
+
+    # Sub-D alerts: evaluate + fire + dispatch + auto-resolve.
+    # Best-effort: alert failure must not break the heartbeat ack.
+    try:
+        from backend.config import Config as _Cfg
+        from .alerts import rules as _rules
+        from .alerts import store as _astore
+        from .alerts import dispatch as _adispatch
+
+        findings = _rules.evaluate_heartbeat(
+            payload, prev_size_bytes=prev_total,
+            thresholds={"shrink_pct": _Cfg.ALERTS_SHRINK_PCT},
+        )
+        if findings:
+            client_row = get_client(conn, client_id) or {}
+            target_dict = {"id": target_id, "category": cat,
+                           "subkey": sub, "label": label}
+            for f in findings:
+                fired_alert = _astore.fire(
+                    conn, type_=f["type"], client_id=client_id,
+                    target_id=target_id, severity=f["severity"],
+                    detail=f["detail"],
+                )
+                if not fired_alert.get("notified_at"):
+                    _adispatch.notify(
+                        conn, alert=fired_alert, client=client_row,
+                        target=target_dict,
+                    )
+        for type_to_resolve in _rules.resolves_keys(payload):
+            _astore.resolve_active_by_key(
+                conn, type_=type_to_resolve, client_id=client_id,
+                target_id=target_id,
+            )
+    except Exception:
+        log = __import__("logging").getLogger(__name__)
+        log.exception("alerts: evaluation failed (heartbeat still applied)")
 
     return HeartbeatResult(
         event_inserted=event_inserted,

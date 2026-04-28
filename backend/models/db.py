@@ -119,6 +119,28 @@ CREATE TABLE IF NOT EXISTS central_queue (
     state         TEXT NOT NULL DEFAULT 'pending'
 );
 CREATE INDEX IF NOT EXISTS idx_queue_due ON central_queue(state, next_retry_ts);
+
+-- Sub-D: alertas detectadas en el central (no_heartbeat, folder_missing,
+-- backup_shrink). En MODE=client la tabla queda vacía (mismo trade-off
+-- que el resto de tablas central_*).
+CREATE TABLE IF NOT EXISTS central_alerts (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    type          TEXT NOT NULL CHECK(type IN
+                    ('no_heartbeat','folder_missing','backup_shrink')),
+    client_id     INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    target_id     INTEGER REFERENCES targets(id) ON DELETE CASCADE,
+    severity      TEXT NOT NULL DEFAULT 'warning'
+                    CHECK(severity IN ('info','warning','critical')),
+    triggered_at  TEXT NOT NULL,
+    last_seen_at  TEXT NOT NULL,
+    resolved_at   TEXT,
+    notified_at   TEXT,
+    detail_json   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_active_lookup
+    ON central_alerts(client_id, target_id, type, resolved_at);
+CREATE INDEX IF NOT EXISTS idx_alerts_triggered
+    ON central_alerts(triggered_at DESC);
 """
 
 

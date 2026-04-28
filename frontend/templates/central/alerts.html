@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Alertas — Central{% endblock %}
+{% block header %}Alertas{% endblock %}
+{% block content %}
+<section class="p-6">
+  <div class="mb-4 flex items-center gap-3 text-sm">
+    <span>Filtro:</span>
+    <a href="?status=active"
+       class="px-3 py-1 rounded border border-[var(--border)] {% if status_filter == 'active' %}bg-brand-600 text-white{% endif %}">
+      Activas
+    </a>
+    <a href="?status=all"
+       class="px-3 py-1 rounded border border-[var(--border)] {% if status_filter == 'all' %}bg-brand-600 text-white{% endif %}">
+      Todas
+    </a>
+    <span class="text-[var(--muted)]">{{ rows|length }} resultado(s)</span>
+  </div>
+
+  {% if not rows %}
+  <div class="text-sm text-[var(--muted)] p-8 text-center border border-dashed rounded">
+    Sin alertas {% if status_filter == 'active' %}activas{% endif %}.
+  </div>
+  {% else %}
+  <table class="min-w-full text-sm rounded border border-[var(--border)]">
+    <thead class="bg-[var(--surface)]">
+      <tr>
+        <th class="text-left px-4 py-2">Tipo</th>
+        <th class="text-left px-4 py-2">Severidad</th>
+        <th class="text-left px-4 py-2">Cliente</th>
+        <th class="text-left px-4 py-2">Target</th>
+        <th class="text-left px-4 py-2">Disparada</th>
+        <th class="text-left px-4 py-2">Estado</th>
+        <th class="text-right px-4 py-2">Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for a in rows %}
+      <tr class="border-t border-[var(--border)]" data-alert-id="{{ a.id }}">
+        <td class="px-4 py-2 font-mono">{{ a.type }}</td>
+        <td class="px-4 py-2">
+          <span class="px-2 py-0.5 rounded text-xs
+                       {% if a.severity == 'critical' %}bg-rose-500/20 text-rose-300
+                       {% elif a.severity == 'warning' %}bg-amber-500/20 text-amber-300
+                       {% else %}bg-slate-500/20 text-slate-300{% endif %}">
+            {{ a.severity }}
+          </span>
+        </td>
+        <td class="px-4 py-2">#{{ a.client_id }}</td>
+        <td class="px-4 py-2">{{ a.target_id or "—" }}</td>
+        <td class="px-4 py-2 font-mono text-xs">{{ a.triggered_at }}</td>
+        <td class="px-4 py-2">
+          {% if a.resolved_at %}
+            <span class="text-emerald-300">resuelto</span>
+          {% else %}
+            <span class="text-amber-300">activa</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-2 text-right">
+          {% if not a.resolved_at and g.current_user and g.current_user.role in ('admin', 'operator') %}
+          <button class="ack-btn rounded border border-[var(--border)] px-2 py-1 text-xs hover:bg-black/5">
+            Acknowledge
+          </button>
+          {% endif %}
+        </td>
+      </tr>
+      {% if a.detail %}
+      <tr class="border-t border-[var(--border)] bg-black/5">
+        <td colspan="7" class="px-4 py-1 text-xs font-mono text-[var(--muted)]">
+          {{ a.detail | tojson }}
+        </td>
+      </tr>
+      {% endif %}
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+<script src="{{ url_for('static', filename='js/central/alerts.js') }}"></script>
+{% endblock %}
