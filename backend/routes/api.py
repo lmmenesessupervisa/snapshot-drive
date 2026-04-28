@@ -299,6 +299,36 @@ def crypto_keygen():
         return _err(str(e), 500)
 
 
+# ---------- Scheduler (systemd timers) ----------
+@api_bp.get("/scheduler/list")
+@require_role("admin")
+def scheduler_list():
+    from ..services import scheduler
+    return _ok(scheduler.list_schedules())
+
+
+@api_bp.post("/scheduler/<unit>")
+@require_role("admin")
+def scheduler_set(unit: str):
+    from ..services import scheduler
+    payload = request.get_json(silent=True) or {}
+    try:
+        sched = scheduler.set_schedule(
+            unit,
+            kind=payload.get("kind", "monthly"),
+            time=payload.get("time", ""),
+            weekday=payload.get("weekday", "Mon"),
+            day=int(payload.get("day", 1) or 1),
+            oncalendar=payload.get("oncalendar", ""),
+            delay=payload.get("delay", ""),
+            enabled=bool(payload.get("enabled", True)),
+        )
+        _db().audit("api", "scheduler-set", f"{unit}={sched.oncalendar} enabled={sched.enabled}")
+        return _ok(sched.to_dict())
+    except scheduler.ScheduleError as e:
+        return _err(str(e), 400)
+
+
 # ---------- Archive: operaciones ----------
 @api_bp.get("/archive/list")
 @require_any_role("admin", "operator")

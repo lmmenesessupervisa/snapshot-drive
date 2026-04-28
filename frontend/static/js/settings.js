@@ -199,7 +199,9 @@ function refreshArchivePathPreview() {
     $('arch-path-preview').textContent = '(configura los campos de arriba)';
     return;
   }
-  const ext = (ARCH_STATE.cfg?.password_set) ? 'tar.zst.enc' : 'tar.zst';
+  // El sufijo depende del cifrado activo (age > openssl > none).
+  const cryptoMode = (ARCH_STATE.cryptoMode) || 'none';
+  const ext = ({ age: 'tar.zst.age', openssl: 'tar.zst.enc', none: 'tar.zst' })[cryptoMode];
   const now = new Date();
   const pad = (x,w=2) => String(x).padStart(w,'0');
   const ts = `${now.getUTCFullYear()}${pad(now.getUTCMonth()+1)}${pad(now.getUTCDate())}_${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}`;
@@ -290,11 +292,38 @@ $('arch-pwd-show').addEventListener('change', (e) => {
 
 $('refresh-archive').onclick = loadArchiveConfig;
 
-// --- DB backups (sub-E) ---
+// --- DB backups (sub-E) — distribuye DB_BACKUP_TARGETS en toggles por engine ---
+function parseTargets(raw) {
+  const groups = { postgres: [], mysql: [], mongo: [] };
+  for (const tok of (raw || '').split(/\s+/).filter(Boolean)) {
+    const [eng, db] = tok.split(':', 2);
+    if (groups[eng] && db) groups[eng].push(db);
+  }
+  return groups;
+}
+
+function buildTargets(pgList, myList, mongoList) {
+  const mk = (eng, list) => list.filter(Boolean).map(db => `${eng}:${db}`);
+  return [...mk('postgres', pgList), ...mk('mysql', myList), ...mk('mongo', mongoList)].join(' ');
+}
+
+function dbsFromTextarea(id) {
+  return $(id).value.split(/[\s\n,]+/).map(s => s.trim()).filter(Boolean);
+}
+
+function setEngineEnabled(engine, on, dbs) {
+  $(`db-${engine}-on`).checked = !!on;
+  $(`db-${engine}-fields`).classList.toggle('hidden', !on);
+  if (dbs && dbs.length) $(`db-${engine}-dbs`).value = dbs.join('\n');
+}
+
 async function loadDbConfig() {
   try {
     const c = await API.get('/db-archive/config');
-    $('db-targets').value = c.targets || '';
+    const groups = parseTargets(c.targets);
+    setEngineEnabled('pg', groups.postgres.length > 0, groups.postgres);
+    setEngineEnabled('mysql', groups.mysql.length > 0, groups.mysql);
+    setEngineEnabled('mongo', groups.mongo.length > 0, groups.mongo);
     $('db-pg-host').value = c.pg_host || '';
     $('db-pg-port').value = c.pg_port || '5432';
     $('db-pg-user').value = c.pg_user || '';
@@ -307,9 +336,21 @@ async function loadDbConfig() {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+['pg', 'mysql', 'mongo'].forEach(eng => {
+  if ($(`db-${eng}-on`)) {
+    $(`db-${eng}-on`).addEventListener('change', (e) => {
+      $(`db-${eng}-fields`).classList.toggle('hidden', !e.target.checked);
+    });
+  }
+});
+
 $('btn-save-db').onclick = async () => {
+  const pgDbs    = $('db-pg-on').checked    ? dbsFromTextarea('db-pg-dbs')    : [];
+  const mysqlDbs = $('db-mysql-on').checked ? dbsFromTextarea('db-mysql-dbs') : [];
+  const mongoDbs = $('db-mongo-on').checked ? dbsFromTextarea('db-mongo-dbs') : [];
+  const targets = buildTargets(pgDbs, mysqlDbs, mongoDbs);
   const body = {
-    targets: $('db-targets').value.trim(),
+    targets,
     pg_host: $('db-pg-host').value.trim(),
     pg_port: $('db-pg-port').value.trim(),
     pg_user: $('db-pg-user').value.trim(),
@@ -325,30 +366,53 @@ $('btn-save-db').onclick = async () => {
   };
   try {
     await API.post('/db-archive/config', body);
-    toast('Configuración DB guardada', 'success');
+    toast(targets ? 'Configuración DB guardada — el timer @db-archive queda activo' : 'DB backups desactivados (sin engines)', 'success');
     $('db-pg-pwd').value = ''; $('db-pg-pwd-clear').checked = false;
     $('db-mysql-pwd').value = ''; $('db-mysql-pwd-clear').checked = false;
     $('db-mongo-uri').value = ''; $('db-mongo-uri-clear').checked = false;
     loadDbConfig();
+    loadScheduler();
   } catch (e) { toast(e.message, 'error'); }
 };
 
-// --- Crypto / age (sub-F) ---
+// --- Cifrado unificado (openssl + age) ---
+function setCryptoMode(mode) {
+  document.querySelectorAll('input[name="crypto-mode-sel"]').forEach(r => {
+    r.checked = (r.value === mode);
+  });
+  $('crypto-age-block').classList.toggle('hidden', mode !== 'age');
+  $('crypto-openssl-block').classList.toggle('hidden', mode !== 'openssl');
+  $('crypto-none-block').classList.toggle('hidden', mode !== 'none');
+}
+
+document.querySelectorAll('input[name="crypto-mode-sel"]').forEach(r => {
+  r.addEventListener('change', (e) => setCryptoMode(e.target.value));
+});
+
 async function loadCryptoConfig() {
   try {
     const c = await API.get('/crypto/config');
     $('crypto-recipients').value = c.recipients || '';
     const chip = $('crypto-mode');
     const mode = c.active_mode || 'none';
-    chip.textContent = ({ age: 'age (público/privado)', openssl: 'openssl + password', none: 'sin cifrado' })[mode] || mode;
-    chip.className = 'chip ' + ({ age: 'chip-emerald', openssl: 'chip-amber', none: 'chip-slate' })[mode];
+    chip.textContent = ({ age: 'age (clave pública/privada)', openssl: 'password (openssl)', none: 'sin cifrado' })[mode] || mode;
+    chip.className = 'chip ml-1 ' + ({ age: 'chip-emerald', openssl: 'chip-amber', none: 'chip-slate' })[mode];
+    setCryptoMode(mode);
+    // Reflejar password openssl state
+    $('arch-pwd-state').textContent = c.openssl_password_set ? '(configurada)' : '(no configurada)';
+    // Pasar el modo al preview de la ruta para que el sufijo sea exacto.
+    ARCH_STATE.cryptoMode = mode;
+    refreshArchivePathPreview();
   } catch (e) { toast(e.message, 'error'); }
 }
 
 $('btn-save-crypto').onclick = async () => {
   try {
+    if (!$('crypto-recipients').value.trim()) {
+      if (!confirm('¿Activar age sin recipients? Sin recipients age no cifra (cae a openssl o sin cifrado).')) return;
+    }
     await API.post('/crypto/config', { recipients: $('crypto-recipients').value });
-    toast('Recipients guardados', 'success');
+    toast('Cifrado age activado', 'success');
     loadCryptoConfig();
   } catch (e) { toast(e.message, 'error'); }
 };
@@ -369,9 +433,124 @@ $('kp-append').onclick = () => {
   const pub = $('kp-pub').value.trim();
   if (!pub) return;
   $('crypto-recipients').value = (cur ? cur + ' ' : '') + pub;
-  toast('Pública agregada al campo. Pulsá Guardar recipients para persistir.', 'info');
+  toast('Pública agregada. Pulsá Activar cifrado age para persistir.', 'info');
   $('dlg-keypair').close();
 };
+
+// --- Scheduler de timers ---
+const SCHED_LABELS = {
+  archive:      { name: 'Mensual del sistema', desc: 'Archive cold-storage de las rutas configuradas (.tar.zst). Default: día 1 de cada mes a las 02:00 UTC.' },
+  'db-archive': { name: 'Bases de datos',      desc: 'Dump de cada engine activado. Default: todos los días a las 03:00 UTC. Solo se ejecuta si hay engines configurados arriba.' },
+  reconcile:    { name: 'Reconcile',           desc: 'Sube al Drive lo que quedó local en buffer (cuando rclone falla). Default: semanal.' },
+  prune:        { name: 'Retención (prune)',   desc: 'Borra archives más viejos que ARCHIVE_KEEP_MONTHS. Default: deshabilitado.' },
+  create:       { name: 'Snapshot incremental local (legacy)', desc: 'restic create — solo si usás snapshots incrementales en disco local.' },
+};
+
+function schedRowHtml(s) {
+  const meta = SCHED_LABELS[s.unit] || { name: s.unit, desc: '' };
+  const next = s.next_run ? `próximo: <span class="mono">${s.next_run}</span>` : 'sin próximo run';
+  return `
+    <div class="sched-row" data-unit="${s.unit}">
+      <div>
+        <div class="sched-row-name">${meta.name}</div>
+        <div class="sched-row-desc">${meta.desc}</div>
+        <div class="sched-row-fields">
+          <label class="block">
+            <span class="text-[10px] uppercase tracking-wider text-[var(--muted)]">Frecuencia</span>
+            <select class="input mt-1 sched-kind">
+              <option value="daily">Diario</option>
+              <option value="weekly">Semanal</option>
+              <option value="monthly">Mensual</option>
+              <option value="custom">Custom (OnCalendar)</option>
+            </select>
+          </label>
+          <label class="block sched-time-wrap">
+            <span class="text-[10px] uppercase tracking-wider text-[var(--muted)]">Hora (UTC, HH:MM)</span>
+            <input type="time" class="input mt-1 mono sched-time">
+          </label>
+          <label class="block sched-weekday-wrap hidden">
+            <span class="text-[10px] uppercase tracking-wider text-[var(--muted)]">Día (semanal)</span>
+            <select class="input mt-1 sched-weekday">
+              <option value="Mon">Lunes</option><option value="Tue">Martes</option>
+              <option value="Wed">Miércoles</option><option value="Thu">Jueves</option>
+              <option value="Fri">Viernes</option><option value="Sat">Sábado</option>
+              <option value="Sun">Domingo</option>
+            </select>
+          </label>
+          <label class="block sched-day-wrap hidden">
+            <span class="text-[10px] uppercase tracking-wider text-[var(--muted)]">Día del mes</span>
+            <input type="number" min="1" max="31" class="input mt-1 mono sched-day">
+          </label>
+          <label class="block sched-custom-wrap hidden">
+            <span class="text-[10px] uppercase tracking-wider text-[var(--muted)]">OnCalendar</span>
+            <input type="text" class="input mt-1 mono sched-oncalendar" placeholder="*-*-* 03:00:00">
+          </label>
+        </div>
+      </div>
+      <div class="sched-row-actions">
+        <label class="inline-flex items-center gap-2 text-xs">
+          <input type="checkbox" class="sched-enabled accent-[var(--primary)]"> Habilitado
+        </label>
+        <button class="btn-primary text-xs sched-save">Guardar</button>
+        <div class="sched-next">${next}</div>
+      </div>
+    </div>
+  `;
+}
+
+function setupSchedRow(row, s) {
+  row.querySelector('.sched-kind').value = s.kind || 'monthly';
+  row.querySelector('.sched-time').value = s.time || '03:00';
+  row.querySelector('.sched-weekday').value = s.weekday || 'Mon';
+  row.querySelector('.sched-day').value = s.day || 1;
+  row.querySelector('.sched-oncalendar').value = s.oncalendar || '';
+  row.querySelector('.sched-enabled').checked = !!s.enabled;
+  applyKindVisibility(row);
+}
+
+function applyKindVisibility(row) {
+  const kind = row.querySelector('.sched-kind').value;
+  row.querySelector('.sched-weekday-wrap').classList.toggle('hidden', kind !== 'weekly');
+  row.querySelector('.sched-day-wrap').classList.toggle('hidden', kind !== 'monthly');
+  row.querySelector('.sched-time-wrap').classList.toggle('hidden', kind === 'custom');
+  row.querySelector('.sched-custom-wrap').classList.toggle('hidden', kind !== 'custom');
+}
+
+async function loadScheduler() {
+  if (!$('sched-rows')) return;
+  try {
+    const list = await API.get('/scheduler/list');
+    // Mostrar solo los más relevantes para el operador.
+    const order = ['archive', 'db-archive', 'reconcile', 'prune'];
+    const items = list.filter(s => order.includes(s.unit))
+                      .sort((a, b) => order.indexOf(a.unit) - order.indexOf(b.unit));
+    $('sched-rows').innerHTML = items.map(schedRowHtml).join('');
+    items.forEach(s => {
+      const row = document.querySelector(`.sched-row[data-unit="${s.unit}"]`);
+      setupSchedRow(row, s);
+      row.querySelector('.sched-kind').addEventListener('change', () => applyKindVisibility(row));
+      row.querySelector('.sched-save').addEventListener('click', () => saveSchedule(s.unit, row));
+    });
+  } catch (e) {
+    $('sched-rows').innerHTML = `<div class="text-xs text-rose-500">Error cargando schedule: ${e.message}</div>`;
+  }
+}
+
+async function saveSchedule(unit, row) {
+  const body = {
+    kind: row.querySelector('.sched-kind').value,
+    time: row.querySelector('.sched-time').value,
+    weekday: row.querySelector('.sched-weekday').value,
+    day: parseInt(row.querySelector('.sched-day').value, 10) || 1,
+    oncalendar: row.querySelector('.sched-oncalendar').value,
+    enabled: row.querySelector('.sched-enabled').checked,
+  };
+  try {
+    const sched = await API.post(`/scheduler/${unit}`, body);
+    toast(`${unit}: ${sched.enabled ? 'activado' : 'desactivado'}`, 'success');
+    loadScheduler();
+  } catch (e) { toast(e.message, 'error'); }
+}
 
 // --- Alerts (sub-D) ---
 async function loadAlertsConfig() {
@@ -424,3 +603,4 @@ loadArchiveConfig();
 loadDbConfig();
 loadCryptoConfig();
 loadAlertsConfig();
+loadScheduler();
