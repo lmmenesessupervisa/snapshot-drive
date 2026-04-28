@@ -94,3 +94,16 @@ ARCHIVE_KEEP_MONTHS="12"
 # invalidates all enrolled TOTP secrets (users must re-enroll via
 # backup codes or 'snapctl admin reset-mfa').
 SECRET_KEY=""
+
+# --- Sub-F: Cifrado opcional con age (alternativa a ARCHIVE_PASSWORD) ----
+# Si está seteado, age toma precedencia sobre ARCHIVE_PASSWORD para los
+# backups nuevos (los viejos siguen restauraables con su modo original).
+# Generá un keypair con: sudo snapctl crypto-keygen
+# Soporta 2+ recipients separados por espacios:
+#   ARCHIVE_AGE_RECIPIENTS="age1abc... age1xyz..."
+ARCHIVE_AGE_RECIPIENTS=""
+
+# Path al archivo de identidad (privada). Solo se usa para restore.
+# Mode 0600. NO debe estar seteado en hosts de producción — solo
+# temporalmente cuando vas a restaurar un .age.
+ARCHIVE_AGE_IDENTITY_FILE=""
