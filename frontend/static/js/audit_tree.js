@@ -7,12 +7,17 @@ const $T = (id) => document.getElementById(id);
 const TREE_STATE = {
   data: null,
   filter: "",
+  filterProyecto: "",
+  filterCliente: "",
   withDb: false,
   encryptedOnly: false,
   staleOnly: false,
   expanded: new Set(),  // keys: `p:<proyecto>` o `r:<proyecto>/<entorno>/<pais>` o `c:<proyecto>/<entorno>/<pais>/<label>`
   view: "tree",
 };
+
+// SVG chevron — gira con CSS via la clase rotated.
+const CHEVRON_SVG = `<svg class="audit-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>`;
 
 // ---------- formatters ----------
 function fmtBytes(n) {
@@ -67,14 +72,19 @@ function engineChip(engine) {
 
 // ---------- filters ----------
 function passesFilter(p) {
+  // Filtro por proyecto exacto del dropdown
+  if (TREE_STATE.filterProyecto && p.name !== TREE_STATE.filterProyecto) return null;
+
   const needle = TREE_STATE.filter.toLowerCase();
-  if (!needle && !TREE_STATE.withDb && !TREE_STATE.encryptedOnly && !TREE_STATE.staleOnly) return p;
+  const cli = TREE_STATE.filterCliente;
+  if (!needle && !TREE_STATE.withDb && !TREE_STATE.encryptedOnly && !TREE_STATE.staleOnly && !cli) return p;
   const filtered = {
     ...p,
     regions: p.regions
       .map(r => ({
         ...r,
         clients: r.clients.filter(c => {
+          if (cli && c.label !== cli) return false;
           if (TREE_STATE.withDb && (!c.db || c.db.length === 0)) return false;
           if (TREE_STATE.encryptedOnly) {
             const hasEnc = (c.monthly && c.monthly.encrypted_count > 0) ||
@@ -98,6 +108,26 @@ function passesFilter(p) {
       .filter(r => r.clients.length > 0),
   };
   return filtered.regions.length ? filtered : null;
+}
+
+// Pobla los dropdowns proyecto / cliente con valores únicos del data.
+function populateFilterDropdowns() {
+  if (!TREE_STATE.data) return;
+  const projSel = $T("filter-tree-proyecto");
+  const cliSel  = $T("filter-tree-cliente");
+  if (!projSel || !cliSel) return;
+  const proyectos = (TREE_STATE.data.proyectos || []).map(p => p.name).sort();
+  const clientes = new Set();
+  for (const p of TREE_STATE.data.proyectos || []) {
+    for (const r of p.regions || []) for (const c of r.clients || []) clientes.add(c.label);
+  }
+  const cliSorted = [...clientes].sort();
+  // Conservar la selección actual al re-popular.
+  const curP = projSel.value, curC = cliSel.value;
+  projSel.innerHTML = '<option value="">Todos los proyectos</option>' +
+    proyectos.map(n => `<option value="${n}"${n === curP ? ' selected' : ''}>${n}</option>`).join("");
+  cliSel.innerHTML = '<option value="">Todos los clientes</option>' +
+    cliSorted.map(n => `<option value="${n}"${n === curC ? ' selected' : ''}>${n}</option>`).join("");
 }
 
 // ---------- render ----------
@@ -130,7 +160,7 @@ function renderClient(p, r, c) {
   return `
     <div class="audit-cli">
       <button class="audit-cli-row" data-toggle="${key}">
-        <span class="audit-caret">${open ? '▾' : '▸'}</span>
+        <span class="audit-caret">${open ? CHEVRON_SVG.replace('audit-chevron', 'audit-chevron rotated') : CHEVRON_SVG}</span>
         <span class="audit-cli-label mono">${c.label}</span>
         <span class="audit-cli-chips">${monthlyChip} ${dbChip}</span>
         <span class="audit-cli-meta">${c.files} archivos · ${fmtBytes(c.size)}</span>
@@ -200,7 +230,7 @@ function renderRegion(p, r) {
   return `
     <div class="audit-region">
       <button class="audit-region-row" data-toggle="${key}">
-        <span class="audit-caret">${open ? '▾' : '▸'}</span>
+        <span class="audit-caret">${open ? CHEVRON_SVG.replace('audit-chevron', 'audit-chevron rotated') : CHEVRON_SVG}</span>
         <span class="chip chip-slate">${r.entorno}</span>
         <span class="chip chip-slate">${r.pais}</span>
         <span class="audit-region-meta">${r.clients.length} cliente${r.clients.length === 1 ? '' : 's'} · ${r.files} archivos · ${fmtBytes(r.size)}</span>
@@ -217,7 +247,7 @@ function renderProyecto(p) {
     <div class="card audit-proyecto">
       <button class="audit-proyecto-row" data-toggle="${key}">
         <div class="flex items-center gap-3">
-          <span class="audit-caret-lg">${open ? '▾' : '▸'}</span>
+          <span class="audit-caret-lg">${open ? CHEVRON_SVG.replace('audit-chevron', 'audit-chevron rotated') : CHEVRON_SVG}</span>
           <span class="audit-proyecto-name">${p.name}</span>
           <span class="chip chip-violet">${p.clients} cliente${p.clients === 1 ? '' : 's'}</span>
         </div>
@@ -264,7 +294,12 @@ async function loadTree(force = false) {
     if (!j.ok) throw new Error(j.error || "error desconocido");
     TREE_STATE.data = j;
     document.getElementById("audit-error").classList.add("hidden");
+    populateFilterDropdowns();
     renderTree();
+    // Notificar a audit_summary.js que hay data fresca.
+    if (typeof window.onAuditTreeData === "function") {
+      window.onAuditTreeData(j);
+    }
   } catch (e) {
     const el = document.getElementById("audit-error");
     el.textContent = "No se pudo cargar el árbol: " + e.message;
@@ -272,31 +307,54 @@ async function loadTree(force = false) {
   }
 }
 
+// Expongo los datos para que audit_summary.js pueda reusarlos sin
+// pegarle de nuevo al endpoint.
+window.getAuditTreeData = () => TREE_STATE.data;
+window.fmtBytes = fmtBytes;
+window.fmtTsShort = fmtTsShort;
+window.ageDays = ageDays;
+
 // ---------- tabs ----------
 function showView(view) {
   TREE_STATE.view = view;
   $T("view-tree").classList.toggle("hidden", view !== "tree");
+  $T("view-summary").classList.toggle("hidden", view !== "summary");
   $T("view-host").classList.toggle("hidden", view !== "host");
   $T("tab-tree").classList.toggle("audit-tab-active", view === "tree");
+  $T("tab-summary").classList.toggle("audit-tab-active", view === "summary");
   $T("tab-host").classList.toggle("audit-tab-active", view === "host");
   if (view === "tree" && !TREE_STATE.data) loadTree(false);
+  if (view === "summary" && typeof window.renderSummaryView === "function") {
+    window.renderSummaryView();
+  }
 }
+window.showAuditView = showView;
 
 document.addEventListener("DOMContentLoaded", () => {
   $T("tab-tree").addEventListener("click", () => showView("tree"));
+  $T("tab-summary").addEventListener("click", () => showView("summary"));
   $T("tab-host").addEventListener("click", () => showView("host"));
   $T("filter-tree").addEventListener("input", (e) => {
     TREE_STATE.filter = e.target.value.trim();
+    renderTree();
+  });
+  $T("filter-tree-proyecto").addEventListener("change", (e) => {
+    TREE_STATE.filterProyecto = e.target.value;
+    renderTree();
+  });
+  $T("filter-tree-cliente").addEventListener("change", (e) => {
+    TREE_STATE.filterCliente = e.target.value;
     renderTree();
   });
   $T("filter-with-db").addEventListener("change", (e) => { TREE_STATE.withDb = e.target.checked; renderTree(); });
   $T("filter-encrypted").addEventListener("change", (e) => { TREE_STATE.encryptedOnly = e.target.checked; renderTree(); });
   $T("filter-stale").addEventListener("change", (e) => { TREE_STATE.staleOnly = e.target.checked; renderTree(); });
 
-  // Hook al botón Refrescar para que también refresque el árbol.
+  // Hook al botón Refrescar para que refresque árbol Y summary.
   const refreshBtn = $T("btn-refresh");
   refreshBtn.addEventListener("click", () => {
-    if (TREE_STATE.view === "tree") loadTree(true);
+    if (TREE_STATE.view === "host") return;  // legacy tiene su propio loader
+    loadTree(true);
   });
 
   // Carga inicial del árbol (vista por defecto)

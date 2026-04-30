@@ -5,10 +5,11 @@
 {% block content %}
 <div class="space-y-6">
 
-  <!-- Tabs: vista por proyecto vs vista por host -->
+  <!-- Tabs: vista por proyecto vs resumen general vs legacy -->
   <div class="flex items-center justify-between gap-3 flex-wrap">
     <div class="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--card)] p-1">
       <button id="tab-tree" class="audit-tab audit-tab-active" data-view="tree">Por proyecto</button>
+      <button id="tab-summary" class="audit-tab" data-view="summary">Resumen general</button>
       <button id="tab-host" class="audit-tab" data-view="host">Por host (legacy)</button>
     </div>
     <div class="flex items-center gap-3 text-xs">
@@ -52,6 +53,12 @@
     <div class="flex items-center gap-3 mb-4 flex-wrap">
       <input type="search" id="filter-tree" class="input w-72"
              placeholder="Filtrar por proyecto, cliente, DB…">
+      <select id="filter-tree-proyecto" class="input w-52">
+        <option value="">Todos los proyectos</option>
+      </select>
+      <select id="filter-tree-cliente" class="input w-52">
+        <option value="">Todos los clientes</option>
+      </select>
       <label class="inline-flex items-center gap-2 text-xs text-[var(--muted)] cursor-pointer">
         <input id="filter-with-db" type="checkbox"> Solo con backups DB
       </label>
@@ -66,6 +73,51 @@
     <!-- Árbol -->
     <div id="tree-root" class="space-y-3">
       <div class="card p-8 text-center text-[var(--muted)]">Cargando árbol de Drive…</div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       VISTA "Resumen general" (tabla plana, sortable + filterable)
+       ============================================================ -->
+  <div id="view-summary" class="hidden">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+      <div class="card p-4 kpi">
+        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Filas</div>
+        <div class="text-3xl font-semibold mt-2" id="ks-rows">—</div>
+      </div>
+      <div class="card p-4 kpi">
+        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Reciente (&lt;7d)</div>
+        <div class="text-3xl font-semibold mt-2 text-emerald-600" id="ks-ok">—</div>
+      </div>
+      <div class="card p-4 kpi">
+        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Stale (7-30d)</div>
+        <div class="text-3xl font-semibold mt-2 text-amber-600" id="ks-stale">—</div>
+      </div>
+      <div class="card p-4 kpi">
+        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Crítico (&gt;30d)</div>
+        <div class="text-3xl font-semibold mt-2 text-rose-600" id="ks-crit">—</div>
+      </div>
+    </div>
+
+    <div class="card overflow-hidden">
+      <table class="w-full text-sm summary-table">
+        <thead>
+          <tr>
+            <th data-col="cliente"  class="summary-th text-left">Cliente</th>
+            <th data-col="proyecto" class="summary-th text-left">Proyecto</th>
+            <th data-col="estado"   class="summary-th text-left">Estado</th>
+            <th data-col="fecha"    class="summary-th text-left">Último backup</th>
+            <th data-col="size_cli" class="summary-th text-right">Peso total cliente</th>
+            <th data-col="size_pro" class="summary-th text-right">Peso total proyecto</th>
+          </tr>
+        </thead>
+        <tbody id="summary-rows">
+          <tr><td colspan="6" class="text-center text-[var(--muted)] py-10">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="summary-empty" class="hidden card p-8 text-center text-[var(--muted)] mt-3">
+      Sin resultados con los filtros activos.
     </div>
   </div>
 
@@ -137,4 +189,5 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/audit.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/audit_tree.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/audit_summary.js') }}" defer></script>
 {% endblock %}
