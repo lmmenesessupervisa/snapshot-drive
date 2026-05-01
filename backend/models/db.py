@@ -141,6 +141,69 @@ CREATE INDEX IF NOT EXISTS idx_alerts_active_lookup
     ON central_alerts(client_id, target_id, type, resolved_at);
 CREATE INDEX IF NOT EXISTS idx_alerts_triggered
     ON central_alerts(triggered_at DESC);
+
+-- Sub-E: caché en DB del inventario del shared Drive. La auditoría se
+-- alimenta de aquí (no de rclone en vivo) para que cambiar de vista sea
+-- sub-segundo. Drive sigue siendo la fuente de verdad: el botón
+-- "Refrescar" hace un scan completo y reescribe estas tablas. Los
+-- clientes pueden además publicar su propio subárbol en cada heartbeat
+-- (source='client_push') para mantener la DB vigente entre scans.
+
+CREATE TABLE IF NOT EXISTS drive_inventory (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    proyecto           TEXT NOT NULL,
+    entorno            TEXT NOT NULL,
+    pais               TEXT NOT NULL,
+    label              TEXT NOT NULL,
+    category           TEXT NOT NULL CHECK (category IN ('os','db')),
+    subkey             TEXT NOT NULL,
+    count_files        INTEGER NOT NULL DEFAULT 0,
+    total_size_bytes   INTEGER NOT NULL DEFAULT 0,
+    encrypted_count    INTEGER NOT NULL DEFAULT 0,
+    newest_ts          TEXT,
+    newest_path        TEXT,
+    newest_crypto      TEXT,
+    newest_size        INTEGER,
+    prev_size          INTEGER,
+    oldest_ts          TEXT,
+    shrunk             INTEGER NOT NULL DEFAULT 0,
+    shrink_delta_pct   REAL,
+    source             TEXT NOT NULL CHECK (source IN ('drive_scan','client_push')),
+    last_updated_at    TEXT NOT NULL,
+    UNIQUE(proyecto, entorno, pais, label, category, subkey)
+);
+CREATE INDEX IF NOT EXISTS idx_inv_client
+    ON drive_inventory(proyecto, entorno, pais, label);
+
+CREATE TABLE IF NOT EXISTS drive_inventory_files (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    leaf_id     INTEGER NOT NULL REFERENCES drive_inventory(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    path        TEXT NOT NULL,
+    size        INTEGER NOT NULL,
+    ts          TEXT NOT NULL,
+    ts_iso      TEXT NOT NULL,
+    modified    TEXT,
+    encrypted   INTEGER NOT NULL DEFAULT 0,
+    crypto      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_inv_files_leaf
+    ON drive_inventory_files(leaf_id, ts DESC);
+
+CREATE TABLE IF NOT EXISTS drive_scans (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at        TEXT NOT NULL,
+    finished_at       TEXT,
+    status            TEXT NOT NULL CHECK (status IN ('running','ok','error')),
+    files_total       INTEGER,
+    size_bytes_total  INTEGER,
+    leaves_total      INTEGER,
+    duration_s        REAL,
+    error             TEXT,
+    triggered_by      TEXT NOT NULL CHECK (triggered_by IN ('manual','scheduler','startup'))
+);
+CREATE INDEX IF NOT EXISTS idx_drive_scans_finished
+    ON drive_scans(finished_at DESC);
 """
 
 

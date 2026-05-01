@@ -36,16 +36,23 @@ def _is_secure() -> bool:
 
 
 def _set_session_cookie(resp, sid: str) -> None:
+    # SameSite=Lax: el cookie se envía en navegaciones GET top-level
+    # (clics, bookmarks, address bar) — eso evita el bug de "me bota a
+    # login al cambiar de módulo". La protección CSRF real la da el
+    # header X-CSRF-Token chequeado en POST/PUT/PATCH/DELETE.
+    # max_age explícito → cookie persistente hasta el TTL del server,
+    # no muere al cerrar el browser.
     resp.set_cookie(
         COOKIE_NAME, sid, httponly=True, secure=_is_secure(),
-        samesite="Strict", path="/",
+        samesite="Lax", path="/",
+        max_age=sess.SESSION_TTL_HOURS * 3600,
     )
 
 
 def _clear_session_cookie(resp) -> None:
     resp.set_cookie(
         COOKIE_NAME, "", httponly=True, secure=_is_secure(),
-        samesite="Strict", path="/", max_age=0,
+        samesite="Lax", path="/", max_age=0,
     )
 
 

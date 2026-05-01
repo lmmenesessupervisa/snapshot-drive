@@ -90,4 +90,75 @@ def validate_heartbeat(p: dict) -> dict:
             if k in totals and (not isinstance(totals[k], int) or totals[k] < 0):
                 raise SchemaError(f"totals.{k} must be non-negative int")
 
+    inv = p.get("inventory")
+    if inv is not None:
+        _validate_inventory(inv)
+
     return p
+
+
+# Caps al inventario opcional embebido en heartbeats. Valores conservadores
+# para que un payload con inventory aún quepa cómodo en MAX_PAYLOAD_BYTES.
+_INV_MAX_LEAVES = 64
+_INV_MAX_FILES_TOTAL = 200
+_INV_FNAME_MAX = 256
+_INV_PATH_MAX = 1024
+
+
+def _validate_inventory(inv: Any) -> None:
+    if not isinstance(inv, dict):
+        raise SchemaError("inventory must be object")
+    leaves = inv.get("leaves")
+    if not isinstance(leaves, list):
+        raise SchemaError("inventory.leaves must be a list")
+    if len(leaves) > _INV_MAX_LEAVES:
+        raise SchemaError(
+            f"inventory.leaves too many: {len(leaves)} > {_INV_MAX_LEAVES}"
+        )
+    files_total = 0
+    for i, leaf in enumerate(leaves):
+        if not isinstance(leaf, dict):
+            raise SchemaError(f"inventory.leaves[{i}] must be object")
+        cat = leaf.get("category")
+        if cat not in _CATEGORY_VALUES:
+            raise SchemaError(f"inventory.leaves[{i}].category invalid: {cat}")
+        sub = leaf.get("subkey")
+        if not isinstance(sub, str):
+            raise SchemaError(f"inventory.leaves[{i}].subkey must be string")
+        _require_path_safe(sub, f"inventory.leaves[{i}].subkey")
+        files = leaf.get("files")
+        if not isinstance(files, list):
+            raise SchemaError(f"inventory.leaves[{i}].files must be a list")
+        files_total += len(files)
+        if files_total > _INV_MAX_FILES_TOTAL:
+            raise SchemaError(
+                f"inventory: too many files total ({files_total} > {_INV_MAX_FILES_TOTAL})"
+            )
+        for j, f in enumerate(files):
+            if not isinstance(f, dict):
+                raise SchemaError(f"inventory.leaves[{i}].files[{j}] must be object")
+            name = f.get("name")
+            if not isinstance(name, str) or len(name) > _INV_FNAME_MAX:
+                raise SchemaError(
+                    f"inventory.leaves[{i}].files[{j}].name invalid"
+                )
+            path_v = f.get("path")
+            if not isinstance(path_v, str) or len(path_v) > _INV_PATH_MAX:
+                raise SchemaError(
+                    f"inventory.leaves[{i}].files[{j}].path invalid"
+                )
+            size = f.get("size")
+            if not isinstance(size, int) or size < 0:
+                raise SchemaError(
+                    f"inventory.leaves[{i}].files[{j}].size must be non-negative int"
+                )
+            ts = f.get("ts")
+            if not isinstance(ts, str) or len(ts) != 15:
+                raise SchemaError(
+                    f"inventory.leaves[{i}].files[{j}].ts invalid (expected YYYYMMDD_HHMMSS)"
+                )
+            enc = f.get("encrypted", False)
+            if not isinstance(enc, bool):
+                raise SchemaError(
+                    f"inventory.leaves[{i}].files[{j}].encrypted must be bool"
+                )

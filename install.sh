@@ -350,6 +350,14 @@ if [[ $CENTRAL_MODE -eq 1 ]]; then
         sed -i 's/^MODE=.*/MODE="central"/' "$LOCAL_CONF"
         info "MODE actualizado a central en $LOCAL_CONF"
     fi
+    # Habilitar la vista /audit por default en central — es el módulo
+    # principal que usa el operador desde aquí. Si no estaba seteada, la
+    # creamos en "1"; si ya estaba (ej. el operador la apagó a propósito),
+    # la respetamos.
+    if ! grep -q '^SNAPSHOT_AUDIT_VIEWER=' "$LOCAL_CONF" 2>/dev/null; then
+        echo 'SNAPSHOT_AUDIT_VIEWER="1"' >> "$LOCAL_CONF"
+        info "SNAPSHOT_AUDIT_VIEWER=1 agregado a $LOCAL_CONF"
+    fi
     # En central no corre el archive timer del cliente
     systemctl disable --now snapshot@archive.timer 2>/dev/null || true
     systemctl restart snapshot-backend

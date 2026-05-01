@@ -1,16 +1,25 @@
 {% extends "base.html" %}
 {% block title %}Auditoría{% endblock %}
-{% block header %}Auditoría agregada{% endblock %}
+{% block header %}
+  {% if deploy_mode == 'central' %}Auditoría central{% else %}Mis backups{% endif %}
+{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
+<div class="space-y-6"
+     data-deploy-mode="{{ deploy_mode }}"
+     data-local-proyecto="{{ local_filter.proyecto }}"
+     data-local-entorno="{{ local_filter.entorno }}"
+     data-local-pais="{{ local_filter.pais }}"
+     data-local-label="{{ local_filter.label }}">
 
-  <!-- Tabs: vista por proyecto vs resumen general vs legacy -->
+  <!-- Header con tabs (cada tab visible solo en su modo) + refresh -->
   <div class="flex items-center justify-between gap-3 flex-wrap">
     <div class="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--card)] p-1">
-      <button id="tab-tree" class="audit-tab audit-tab-active" data-view="tree">Por proyecto</button>
-      <button id="tab-summary" class="audit-tab" data-view="summary">Resumen general</button>
-      <button id="tab-host" class="audit-tab" data-view="host">Por host (legacy)</button>
+      {% if deploy_mode == 'central' %}
+        <button id="tab-tree" class="audit-tab audit-tab-active" data-view="tree">Por proyecto</button>
+      {% else %}
+        <button id="tab-local" class="audit-tab audit-tab-active" data-view="local">Mis backups</button>
+      {% endif %}
     </div>
     <div class="flex items-center gap-3 text-xs">
       <span class="text-[var(--muted)]">Última actualización: <span id="audit-last-ts" class="mono">—</span></span>
@@ -21,36 +30,75 @@
     </div>
   </div>
 
+  {% if deploy_mode == 'central' %}
   <!-- ============================================================
-       VISTA "Por proyecto" (jerarquía: proyecto → región → cliente)
+       VISTA "Por proyecto" — solo en MODE=central
        ============================================================ -->
   <div id="view-tree">
-    <!-- KPIs globales -->
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
-      <div class="card p-4 kpi">
+
+    <!-- KPIs interactivos: cada card abre un spotlight panel debajo -->
+    <div class="grid grid-cols-2 md:grid-cols-7 gap-3 mb-4">
+      <button class="card p-4 kpi text-left transition cursor-pointer hover:border-violet-400" data-spotlight="proyectos">
         <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Proyectos</div>
         <div class="text-3xl font-semibold mt-2" id="kt-proyectos">—</div>
-      </div>
-      <div class="card p-4 kpi">
+        <div class="text-[10px] text-[var(--muted-2)] mt-1">ver detalle ↗</div>
+      </button>
+      <button class="card p-4 kpi text-left transition cursor-pointer hover:border-sky-400" data-spotlight="clientes">
         <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Clientes</div>
         <div class="text-3xl font-semibold mt-2" id="kt-clients">—</div>
-      </div>
-      <div class="card p-4 kpi">
+        <div class="text-[10px] text-[var(--muted-2)] mt-1">ver detalle ↗</div>
+      </button>
+      <button class="card p-4 kpi text-left transition cursor-pointer hover:border-emerald-400" data-spotlight="vivos">
+        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Servicios vivos</div>
+        <div class="text-3xl font-semibold mt-2 text-emerald-300" id="kt-alive">—</div>
+        <div class="text-[10px] text-[var(--muted-2)] mt-1" id="kt-alive-sub">—</div>
+      </button>
+      <button class="card p-4 kpi text-left transition cursor-pointer hover:border-slate-400" data-spotlight="archivos">
         <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Archivos</div>
         <div class="text-3xl font-semibold mt-2" id="kt-files">—</div>
-      </div>
-      <div class="card p-4 kpi">
+        <div class="text-[10px] text-[var(--muted-2)] mt-1">por tipo ↗</div>
+      </button>
+      <button class="card p-4 kpi text-left transition cursor-pointer hover:border-cyan-400" data-spotlight="tamano">
         <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Tamaño total</div>
         <div class="text-3xl font-semibold mt-2 mono" id="kt-size">—</div>
-      </div>
-      <div class="card p-4 kpi">
+        <div class="text-[10px] text-[var(--muted-2)] mt-1">top clientes ↗</div>
+      </button>
+      <button class="card p-4 kpi text-left transition cursor-pointer hover:border-blue-400" data-spotlight="ultimo">
         <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Último backup</div>
         <div class="text-base font-semibold mt-2 mono" id="kt-last">—</div>
-      </div>
+        <div class="text-[10px] text-[var(--muted-2)] mt-1">ranking por recencia ↗</div>
+      </button>
+      <button class="card p-4 kpi text-left transition cursor-pointer hover:border-amber-400" id="kt-shrunk-card" data-spotlight="encogidos">
+        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Backups encogidos</div>
+        <div class="text-3xl font-semibold mt-2" id="kt-shrunk">—</div>
+        <div class="text-[10px] text-[var(--muted-2)] mt-1">≥ <span id="kt-shrink-pct">20</span>% menos que el anterior</div>
+      </button>
     </div>
 
-    <!-- Filtros -->
-    <div class="flex items-center gap-3 mb-4 flex-wrap">
+    <!-- Banner de shrink -->
+    <div id="shrink-banner" class="hidden mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm flex items-start gap-3">
+      <svg class="w-5 h-5 mt-0.5 text-amber-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div class="text-amber-100">
+        <div class="font-semibold">Backups que pesan menos que el anterior</div>
+        <div class="text-amber-200/80 text-xs mt-0.5" id="shrink-banner-msg">—</div>
+      </div>
+      <button id="filter-shrunk-only" class="ml-auto btn-secondary text-xs">Filtrar encogidos</button>
+    </div>
+
+    <!-- Spotlight panel (visible al clickear una card) -->
+    <div id="spotlight" class="hidden mb-4 card overflow-hidden">
+      <div class="px-5 py-3 border-b border-[var(--border)] flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Detalle</span>
+          <h2 class="font-semibold text-base" id="spotlight-title">—</h2>
+        </div>
+        <button id="spotlight-close" class="btn-secondary text-xs">Volver al árbol</button>
+      </div>
+      <div id="spotlight-body" class="p-5 text-sm"></div>
+    </div>
+
+    <!-- Filtros del árbol -->
+    <div id="tree-filters" class="flex items-center gap-3 mb-4 flex-wrap">
       <input type="search" id="filter-tree" class="input w-72"
              placeholder="Filtrar por proyecto, cliente, DB…">
       <select id="filter-tree-proyecto" class="input w-52">
@@ -75,119 +123,109 @@
       <div class="card p-8 text-center text-[var(--muted)]">Cargando árbol de Drive…</div>
     </div>
   </div>
+  {% endif %}
 
+  {% if deploy_mode != 'central' %}
   <!-- ============================================================
-       VISTA "Resumen general" (tabla plana, sortable + filterable)
+       VISTA "Mis backups" — solo en MODE=client
        ============================================================ -->
-  <div id="view-summary" class="hidden">
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+  <div id="view-local">
+
+    <!-- Identidad del cliente -->
+    <div class="card p-4 mb-4 flex items-center gap-3 flex-wrap">
+      <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Este cliente</div>
+      <span class="chip chip-violet mono">{{ local_filter.label }}</span>
+      <span class="text-[var(--muted)] text-xs">/</span>
+      <span class="chip chip-slate">{{ local_filter.proyecto or '—' }}</span>
+      <span class="chip chip-slate">{{ local_filter.entorno or '—' }}</span>
+      <span class="chip chip-slate">{{ local_filter.pais or '—' }}</span>
+    </div>
+
+    <!-- KPIs del cliente local -->
+    <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
       <div class="card p-4 kpi">
-        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Filas</div>
-        <div class="text-3xl font-semibold mt-2" id="ks-rows">—</div>
+        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Peso total</div>
+        <div class="text-3xl font-semibold mt-2 mono" id="lk-size">—</div>
+        <div class="text-[10px] text-[var(--muted-2)] mt-1" id="lk-files-sub">—</div>
+      </div>
+      <div class="card p-4 kpi cursor-pointer hover:border-violet-400 transition" data-local-filter="os">
+        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Sistema (mensual)</div>
+        <div class="text-3xl font-semibold mt-2" id="lk-sys-files">—</div>
+        <div class="text-[10px] text-[var(--muted-2)] mt-1 mono" id="lk-sys-size">—</div>
+      </div>
+      <div class="card p-4 kpi cursor-pointer hover:border-sky-400 transition" data-local-filter="db">
+        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Bases de datos</div>
+        <div class="text-3xl font-semibold mt-2" id="lk-db-files">—</div>
+        <div class="text-[10px] text-[var(--muted-2)] mt-1 mono" id="lk-db-size">—</div>
       </div>
       <div class="card p-4 kpi">
-        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Reciente (&lt;7d)</div>
-        <div class="text-3xl font-semibold mt-2 text-emerald-600" id="ks-ok">—</div>
+        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Cifrados</div>
+        <div class="text-3xl font-semibold mt-2 text-emerald-300" id="lk-encrypted">—</div>
+        <div class="text-[10px] text-[var(--muted-2)] mt-1" id="lk-encrypted-sub">—</div>
       </div>
       <div class="card p-4 kpi">
-        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Stale (7-30d)</div>
-        <div class="text-3xl font-semibold mt-2 text-amber-600" id="ks-stale">—</div>
+        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Último backup</div>
+        <div class="text-base font-semibold mt-2 mono" id="lk-last">—</div>
+        <div class="text-[10px] text-[var(--muted-2)] mt-1" id="lk-last-age">—</div>
       </div>
-      <div class="card p-4 kpi">
-        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Crítico (&gt;30d)</div>
-        <div class="text-3xl font-semibold mt-2 text-rose-600" id="ks-crit">—</div>
+      <div class="card p-4 kpi cursor-pointer hover:border-amber-400 transition" data-local-filter="shrunk">
+        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Encogidos</div>
+        <div class="text-3xl font-semibold mt-2" id="lk-shrunk">—</div>
+        <div class="text-[10px] text-[var(--muted-2)] mt-1">≥ <span id="lk-shrink-pct">20</span>% menos que el anterior</div>
       </div>
     </div>
 
-    <div class="card overflow-hidden">
-      <table class="w-full text-sm summary-table">
-        <thead>
-          <tr>
-            <th data-col="cliente"  class="summary-th text-left">Cliente</th>
-            <th data-col="proyecto" class="summary-th text-left">Proyecto</th>
-            <th data-col="estado"   class="summary-th text-left">Estado</th>
-            <th data-col="fecha"    class="summary-th text-left">Último backup</th>
-            <th data-col="size_cli" class="summary-th text-right">Peso total cliente</th>
-            <th data-col="size_pro" class="summary-th text-right">Peso total proyecto</th>
-          </tr>
-        </thead>
-        <tbody id="summary-rows">
-          <tr><td colspan="6" class="text-center text-[var(--muted)] py-10">Cargando…</td></tr>
-        </tbody>
-      </table>
+    <!-- Banner shrink local -->
+    <div id="local-shrink-banner" class="hidden mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm flex items-start gap-3">
+      <svg class="w-5 h-5 mt-0.5 text-amber-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div class="text-amber-100">
+        <div class="font-semibold">Tu último backup pesa menos que el anterior</div>
+        <div class="text-amber-200/80 text-xs mt-0.5" id="local-shrink-msg">—</div>
+      </div>
     </div>
-    <div id="summary-empty" class="hidden card p-8 text-center text-[var(--muted)] mt-3">
-      Sin resultados con los filtros activos.
+
+    <!-- Filtros profesionales -->
+    <div class="card p-3 mb-4 flex items-center gap-3 flex-wrap">
+      <input type="search" id="local-filter-text" class="input w-72"
+             placeholder="Buscar por nombre / engine / dbname…">
+      <select id="local-filter-type" class="input w-44">
+        <option value="all">Todos los tipos</option>
+        <option value="os">Solo sistema</option>
+        <option value="db">Solo bases de datos</option>
+      </select>
+      <select id="local-filter-engine" class="input w-44">
+        <option value="all">Cualquier engine</option>
+        <option value="linux">os/linux</option>
+        <option value="postgres">postgres</option>
+        <option value="mysql">mysql</option>
+        <option value="mongo">mongo</option>
+      </select>
+      <select id="local-filter-crypto" class="input w-40">
+        <option value="all">Cifrado: cualquiera</option>
+        <option value="encrypted">Solo cifrados</option>
+        <option value="plain">Solo en claro</option>
+      </select>
+      <label class="inline-flex items-center gap-2 text-xs text-[var(--muted)] cursor-pointer">
+        <input id="local-filter-shrunk" type="checkbox"> Solo encogidos
+      </label>
+      <span class="ml-auto text-[11px] text-[var(--muted-2)]" id="local-result-count">—</span>
+    </div>
+
+    <!-- Tabla de backup blocks -->
+    <div id="local-blocks" class="space-y-3">
+      <div class="card p-8 text-center text-[var(--muted)]">Cargando tus backups…</div>
     </div>
   </div>
-
-  <!-- ============================================================
-       VISTA "Por host" (legacy: status.json escrito por snapctl)
-       ============================================================ -->
-  <div id="view-host" class="hidden">
-    <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
-      <div class="card p-4">
-        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Total</div>
-        <div class="text-3xl font-semibold mt-1" id="kpi-total">—</div>
-      </div>
-      <div class="card p-4">
-        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Exitosos</div>
-        <div class="text-3xl font-semibold mt-1 text-emerald-400" id="kpi-ok">—</div>
-      </div>
-      <div class="card p-4">
-        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Fallidos</div>
-        <div class="text-3xl font-semibold mt-1 text-rose-400" id="kpi-fail">—</div>
-      </div>
-      <div class="card p-4">
-        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Silenciosos</div>
-        <div class="text-3xl font-semibold mt-1 text-amber-400" id="kpi-silent">—</div>
-      </div>
-      <div class="card p-4">
-        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">En curso</div>
-        <div class="text-3xl font-semibold mt-1 text-sky-400" id="kpi-running">—</div>
-      </div>
-      <div class="card p-4">
-        <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Sin reportar</div>
-        <div class="text-3xl font-semibold mt-1 text-violet-400" id="kpi-unreported">—</div>
-      </div>
-    </div>
-
-    <div class="flex items-center justify-between mb-3 gap-3 flex-wrap">
-      <div class="flex items-center gap-3 text-sm">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" id="filter-fail-only" class="accent-rose-500">
-          <span class="text-[var(--muted)]">Solo los que piden atención</span>
-        </label>
-        <input type="search" id="filter-search" class="input w-64" placeholder="Buscar por hostname…">
-      </div>
-    </div>
-
-    <div class="card overflow-hidden">
-      <table class="w-full text-sm">
-        <thead>
-          <tr>
-            <th class="text-left">Cliente</th>
-            <th class="text-left">Estado</th>
-            <th class="text-left">Última operación</th>
-            <th class="text-right">Último backup OK</th>
-            <th class="text-right">Silencio</th>
-            <th class="text-right">OK / Fail</th>
-            <th class="text-right pr-6"></th>
-          </tr>
-        </thead>
-        <tbody id="audit-rows">
-          <tr><td colspan="7" class="py-10 text-center text-[var(--muted)]">Cargando…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
+  {% endif %}
 
   <div id="audit-error" class="hidden rounded-lg border border-rose-500/40 bg-rose-50 text-rose-700 text-sm p-4"></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/audit.js') }}" defer></script>
-<script src="{{ url_for('static', filename='js/audit_tree.js') }}" defer></script>
-<script src="{{ url_for('static', filename='js/audit_summary.js') }}" defer></script>
+{% if deploy_mode == 'central' %}
+  <script src="{{ url_for('static', filename='js/audit_tree.js') }}" defer></script>
+{% else %}
+  <script src="{{ url_for('static', filename='js/audit.js') }}" defer></script>
+{% endif %}
 {% endblock %}

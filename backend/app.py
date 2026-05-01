@@ -83,6 +83,7 @@ def create_app() -> Flask:
     app.config["SECRET_KEY_BYTES"] = master_key
     app.config["SECRET_KEY"] = derive_key(master_key, info=b"flask-session")
     auth_conn = sqlite3.connect(str(db_path), check_same_thread=False, isolation_level=None)
+    auth_conn.row_factory = sqlite3.Row  # named access (row["col"]) + posicional (row[0])
     auth_conn.execute("PRAGMA journal_mode=WAL")
     apply_migrations(auth_conn)
     app.config["DB_CONN"] = auth_conn
@@ -105,8 +106,11 @@ def create_app() -> Flask:
     csp = {
         "default-src": "'self'",
         "img-src": ["'self'", "data:"],
-        "style-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com"],
+        "style-src": ["'self'", "'unsafe-inline'",
+                      "https://cdn.tailwindcss.com",
+                      "https://fonts.googleapis.com"],
         "script-src": ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com"],
+        "font-src":  ["'self'", "https://fonts.gstatic.com", "data:"],
         "connect-src": "'self'",
         "frame-ancestors": "'none'",
     }

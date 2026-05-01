@@ -1,31 +1,19 @@
-"""Construye el árbol agregado de backups en el shared Drive.
+"""Conector entre el shared Drive y el caché en DB del inventario.
 
-Hace UN solo `rclone lsjson -R --files-only` sobre la raíz configurada y
-agrupa los archivos por la taxonomía:
-
-    <root>/<proyecto>/<entorno>/<pais>/<category>/<subkey>/<label>/YYYY/MM/DD/<file>
-
-donde:
-  - category ∈ {os, db}
-  - subkey   ∈ {linux, postgres, mysql, mongo}
-  - label    = hostname (os) o dbname (db)
-
-Devuelve estructura jerárquica con counts/totales por nivel + lista de
-los 5 archivos más recientes por leaf.
-
-Cache TTL 30s — un lsjson recursivo sobre Drive con muchos archivos
-puede tardar 5-15s; queremos que las navegaciones sean baratas.
+Antes este módulo construía el árbol de auditoría llamando a `rclone
+lsjson -R` en cada request y guardando un caché de 30s en memoria.
+Ahora la fuente de verdad sigue siendo Drive, pero los datos se
+materializan en `drive_inventory` (vía `backend.central.inventory`) y la
+UI lee siempre de DB. Solo el botón "Refrescar" (o `?force=1`) gatilla
+un scan rclone que reescribe esas tablas atómicamente.
 """
 from __future__ import annotations
 
 import json
 import logging
-import re
 import subprocess
-import time
-from collections import defaultdict
-from dataclasses import dataclass
-from typing import Any
+
+from ..central import inventory as inv
 
 log = logging.getLogger(__name__)
 
@@ -34,59 +22,38 @@ class AuditTreeError(Exception):
     pass
 
 
-@dataclass
-class _Cached:
-    ts: float
-    value: Any
-
-
-_FNAME_RE = re.compile(
-    r"^servidor_(?P<label>[A-Za-z0-9_.\-]+)_(?P<ts>\d{8}_\d{6})\."
-    r"(?P<ext>(?:tar|sql|archive)\.zst(?:\.enc|\.age)?)$"
-)
-
-
-def _parse_fname(name: str) -> dict | None:
-    m = _FNAME_RE.match(name)
-    if not m:
-        return None
-    ext = m.group("ext")
-    return {
-        "label": m.group("label"),
-        "ts": m.group("ts"),
-        "ext": ext,
-        "encrypted": ext.endswith(".enc") or ext.endswith(".age"),
-        "crypto": "age" if ext.endswith(".age") else ("openssl" if ext.endswith(".enc") else "none"),
-    }
-
-
-def _ts_to_iso(ts: str) -> str:
-    """20260428_063012 → 2026-04-28T06:30:12Z"""
-    if len(ts) != 15:
-        return ""
-    return f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]}T{ts[9:11]}:{ts[11:13]}:{ts[13:15]}Z"
-
-
 class AuditTreeService:
     def __init__(
         self,
+        *,
+        conn,
         rclone_bin,
         rclone_config,
         remote: str,
         remote_path: str,
-        cache_ttl_s: int = 30,
+        shrink_pct: int = 20,
     ):
+        # `conn` es el DB_CONN compartido (raw sqlite3.Connection en
+        # autocommit, mismo que usan heartbeats/alerts). Usar el mismo conn
+        # garantiza que las transacciones BEGIN/COMMIT no compitan con
+        # lecturas en una conexión paralela.
+        self.conn = conn
         self.rclone_bin = rclone_bin
         self.rclone_config = rclone_config
         self.remote = remote.rstrip(":")
         self.remote_path = remote_path.strip("/")
-        self.cache_ttl = cache_ttl_s
-        self._cache: dict[str, _Cached] = {}
+        self.shrink_pct = max(1, min(99, int(shrink_pct or 20)))
 
+    # Compat: antes era el reset del caché en memoria. Hoy la DB ES el
+    # caché persistente, así que "invalidar" no aplica — el scan solo se
+    # gatilla por el botón Refrescar (refresh()) o por ?force=1. Dejamos
+    # esto como NO-OP para que callers existentes (p. ej. después de
+    # cambiar AUDIT_REMOTE_PATH desde /api/central/config) no disparen
+    # scans no solicitados.
     def invalidate_cache(self) -> None:
-        self._cache.clear()
+        return None
 
-    def _rclone(self, *args: str, timeout: int = 60) -> str:
+    def _rclone(self, *args: str, timeout: int = 120) -> str:
         if not self.rclone_bin.exists():
             raise AuditTreeError(f"rclone no encontrado en {self.rclone_bin}")
         if not self.rclone_config.exists():
@@ -108,12 +75,16 @@ class AuditTreeService:
         return r.stdout
 
     def _list_all(self) -> list[dict]:
-        # Las taxonomías nuevas (tar.zst y db/*) viven en el RAÍZ del remote
-        # (gdrive:proyecto/entorno/pais/...). El prefijo `snapshots/` es legacy
-        # del modelo viejo con repos restic, y por lo tanto NO lo usamos acá:
-        # si AUDIT_REMOTE_PATH apunta ahí, el tree quedaría vacío. Forzamos
-        # el escaneo desde la raíz para descubrir todos los proyectos.
+        # Si AUDIT_REMOTE_PATH está vacío o "/", escaneamos desde la raíz
+        # del remote (gdrive:proyecto/entorno/pais/...). Si tiene valor
+        # (p. ej. "snapshots"), escaneamos solo esa subcarpeta. La
+        # taxonomía esperada bajo este punto siempre es:
+        #   <proyecto>/<entorno>/<pais>/<os|db>/<subkey>/<label>/Y/M/D/<file>
+        # rclone lsjson devuelve paths relativos al directorio que pidamos,
+        # así que el parser sigue contando 10 segmentos en cualquier caso.
         path = f"{self.remote}:"
+        if self.remote_path:
+            path += self.remote_path
         raw = self._rclone(
             "lsjson", "-R", "--files-only", "--no-modtime", "--fast-list", path
         )
@@ -122,155 +93,36 @@ class AuditTreeService:
         except json.JSONDecodeError as e:
             raise AuditTreeError(f"lsjson devolvió JSON inválido: {e}")
 
-    def build_tree(self, force: bool = False) -> dict:
-        """Devuelve {summary, proyectos: [...]} con la jerarquía completa."""
-        if not force:
-            hit = self._cache.get("tree")
-            if hit and (time.time() - hit.ts) < self.cache_ttl:
-                return hit.value
+    def refresh(self, *, triggered_by: str = "manual") -> dict:
+        """Scan completo de Drive → reescribe drive_inventory atómicamente.
 
+        rclone corre primero (subproceso, segundos). El bulk-insert sobre
+        DB es luego, en una única transacción.
+        """
         items = self._list_all()
-        # Filas indexadas por path: cada cliente es un (proyecto, entorno, pais, label).
-        # category/subkey distingue mensual (os/linux) vs DB (db/<engine>).
-        # leaves[(proyecto, entorno, pais, label, category, subkey)] = list[file dict]
-        leaves: dict[tuple, list[dict]] = defaultdict(list)
+        return inv.apply_drive_scan(
+            self.conn, items,
+            shrink_pct=self.shrink_pct,
+            triggered_by=triggered_by,
+        )
 
-        for it in items:
-            if it.get("IsDir"):
-                continue
-            full_path = it.get("Path") or it.get("Name", "")
-            parts = full_path.split("/")
-            # Esperamos exactamente 8 segmentos:
-            #   proyecto, entorno, pais, category, subkey, label, year, month, day, fname
-            # Total = 10. Algunos clientes viejos no usan year/month/day → toleramos 7 segs:
-            if len(parts) < 7:
-                continue
-            proyecto, entorno, pais, category, subkey, label = parts[0:6]
-            fname = parts[-1]
-            if category not in ("os", "db"):
-                continue
-            parsed = _parse_fname(fname)
-            if not parsed:
-                continue
-            file_iso = _ts_to_iso(parsed["ts"])
-            leaves[(proyecto, entorno, pais, label, category, subkey)].append({
-                "name": fname,
-                "path": full_path,
-                "size": int(it.get("Size", 0) or 0),
-                "ts": parsed["ts"],
-                "ts_iso": file_iso,
-                "modified": it.get("ModTime") or file_iso,
-                "encrypted": parsed["encrypted"],
-                "crypto": parsed["crypto"],
-            })
+    def build_tree(self, force: bool = False) -> dict:
+        """Devuelve el árbol agregado. force=True hace scan antes de leer."""
+        if force:
+            self.refresh(triggered_by="manual")
+        return inv.read_tree(self.conn, shrink_pct=self.shrink_pct)
 
-        # Aggregate per proyecto > (entorno, pais) > cliente > backup type
-        tree: dict[str, dict] = {}
-        all_clients: set[tuple] = set()
-        all_files = 0
-        all_size = 0
-        latest_ts_iso = ""
+    def build_local_view(self, *, proyecto: str, entorno: str, pais: str,
+                         label: str, force: bool = False) -> dict:
+        """Vista de un único cliente. force=True scaneará TODO el Drive
+        (no solo el subárbol del cliente) — es el botón refrescar global."""
+        if force:
+            self.refresh(triggered_by="manual")
+        return inv.read_local_view(
+            self.conn,
+            proyecto=proyecto, entorno=entorno, pais=pais, label=label,
+            shrink_pct=self.shrink_pct,
+        )
 
-        for key, files in leaves.items():
-            proyecto, entorno, pais, label, category, subkey = key
-            files.sort(key=lambda f: f["ts"], reverse=True)
-            count = len(files)
-            size = sum(f["size"] for f in files)
-            newest = files[0]
-            oldest = files[-1]
-            enc_count = sum(1 for f in files if f["encrypted"])
-
-            # Update global rollups
-            all_files += count
-            all_size += size
-            all_clients.add((proyecto, entorno, pais, label))
-            if newest["ts_iso"] > latest_ts_iso:
-                latest_ts_iso = newest["ts_iso"]
-
-            p = tree.setdefault(proyecto, {
-                "name": proyecto,
-                "files": 0, "size": 0, "clients": 0,
-                "last_ts": "",
-                "regions": {},
-            })
-            p["files"] += count
-            p["size"] += size
-            if newest["ts_iso"] > p["last_ts"]:
-                p["last_ts"] = newest["ts_iso"]
-
-            region_key = f"{entorno}/{pais}"
-            r = p["regions"].setdefault(region_key, {
-                "entorno": entorno, "pais": pais,
-                "files": 0, "size": 0, "clients": {},
-            })
-            r["files"] += count
-            r["size"] += size
-
-            cli = r["clients"].setdefault(label, {
-                "label": label,
-                "files": 0, "size": 0,
-                "last_ts": "",
-                "monthly": None,        # dict si tiene backup os/linux
-                "db": [],               # lista de dicts (uno por engine:dbname)
-            })
-            cli["files"] += count
-            cli["size"] += size
-            if newest["ts_iso"] > cli["last_ts"]:
-                cli["last_ts"] = newest["ts_iso"]
-
-            entry = {
-                "category": category,
-                "subkey": subkey,
-                "engine": subkey,                # alias para DB
-                "count": count,
-                "size": size,
-                "encrypted_count": enc_count,
-                "newest_ts": newest["ts_iso"],
-                "newest_path": newest["path"],
-                "newest_crypto": newest["crypto"],
-                "oldest_ts": oldest["ts_iso"],
-                "recent": files[:5],             # 5 más recientes para drilldown
-            }
-            if category == "os" and subkey == "linux":
-                cli["monthly"] = entry
-            else:
-                cli["db"].append(entry)
-
-        # Convertir dicts internos a listas ordenadas
-        proyectos_out = []
-        for pname in sorted(tree.keys()):
-            p = tree[pname]
-            regions_out = []
-            cli_count_p = 0
-            for rk in sorted(p["regions"].keys()):
-                r = p["regions"][rk]
-                clients_list = []
-                for clbl in sorted(r["clients"].keys()):
-                    c = r["clients"][clbl]
-                    c["db"].sort(key=lambda d: (d["subkey"], d["engine"]))
-                    clients_list.append(c)
-                regions_out.append({
-                    "entorno": r["entorno"],
-                    "pais": r["pais"],
-                    "files": r["files"],
-                    "size": r["size"],
-                    "clients": clients_list,
-                })
-                cli_count_p += len(clients_list)
-            p["clients"] = cli_count_p
-            del p["regions"]
-            proyectos_out.append({**p, "regions": regions_out})
-
-        result = {
-            "summary": {
-                "proyectos": len(proyectos_out),
-                "clients": len(all_clients),
-                "files": all_files,
-                "size_bytes": all_size,
-                "last_backup_ts": latest_ts_iso or None,
-                "scanned_at": int(time.time()),
-            },
-            "proyectos": proyectos_out,
-        }
-        self._cache["tree"] = _Cached(ts=time.time(), value=result)
-        return result
+    def last_scan(self) -> dict | None:
+        return inv.last_scan(self.conn)

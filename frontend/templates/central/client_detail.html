@@ -2,65 +2,84 @@
 {% block title %}{{ client.proyecto }} · Central{% endblock %}
 {% block header %}{{ client.proyecto }}{% endblock %}
 {% block content %}
-<section class="p-6 space-y-6">
-  <div class="rounded border border-[var(--border)] p-4">
-    <h2 class="text-lg font-semibold mb-2">Cliente</h2>
-    <dl class="grid grid-cols-2 gap-2 text-sm">
-      <dt class="text-[var(--muted)]">Proyecto</dt><dd class="font-mono">{{ client.proyecto }}</dd>
-      <dt class="text-[var(--muted)]">Organización</dt><dd>{{ client.organizacion or "—" }}</dd>
-      <dt class="text-[var(--muted)]">Contacto</dt><dd>{{ client.contacto or "—" }}</dd>
-      <dt class="text-[var(--muted)]">Retención (meses)</dt><dd>{{ client.retencion_meses or "—" }}</dd>
-    </dl>
+<div class="space-y-6">
+
+  <div class="card">
+    <div class="px-5 py-4 border-b border-[var(--border)]">
+      <h2 class="font-semibold">Cliente</h2>
+    </div>
+    <div class="p-5">
+      <dl class="grid grid-cols-2 gap-2 text-sm">
+        <dt class="text-[var(--muted)]">Proyecto</dt><dd class="mono">{{ client.proyecto }}</dd>
+        <dt class="text-[var(--muted)]">Organización</dt><dd>{{ client.organizacion or "—" }}</dd>
+        <dt class="text-[var(--muted)]">Contacto</dt><dd>{{ client.contacto or "—" }}</dd>
+        <dt class="text-[var(--muted)]">Retención (meses)</dt><dd>{{ client.retencion_meses or "—" }}</dd>
+      </dl>
+    </div>
   </div>
 
-  <div class="rounded border border-[var(--border)] p-4">
-    <h2 class="text-lg font-semibold mb-2">Targets ({{ targets|length }})</h2>
+  <div class="card overflow-hidden">
+    <div class="px-5 py-4 border-b border-[var(--border)]">
+      <h2 class="font-semibold">Targets ({{ targets|length }})</h2>
+    </div>
     <table class="min-w-full text-sm">
-      <thead><tr class="text-left">
-        <th class="px-3 py-1">Categoría</th>
-        <th class="px-3 py-1">Subkey</th>
-        <th class="px-3 py-1">Label</th>
-        <th class="px-3 py-1 text-right">Tamaño (GB)</th>
-        <th class="px-3 py-1">Última OK</th>
-      </tr></thead>
+      <thead>
+        <tr>
+          <th class="text-left">Categoría</th>
+          <th class="text-left">Subkey</th>
+          <th class="text-left">Label</th>
+          <th class="text-right">Tamaño (GB)</th>
+          <th class="text-left">Última OK</th>
+        </tr>
+      </thead>
       <tbody>
       {% for t in targets %}
-        <tr class="border-t border-[var(--border)]">
-          <td class="px-3 py-1">{{ t.category }}</td>
-          <td class="px-3 py-1 font-mono">{{ t.subkey }}</td>
-          <td class="px-3 py-1">{{ t.label }}</td>
-          <td class="px-3 py-1 text-right">
+        <tr>
+          <td>{{ t.category }}</td>
+          <td class="mono">{{ t.subkey }}</td>
+          <td>{{ t.label }}</td>
+          <td class="text-right mono">
             {{ "%.2f"|format((t.last_size_bytes or 0) / 1073741824) }}
           </td>
-          <td class="px-3 py-1">{{ t.last_ok_ts or "—" }}</td>
+          <td class="mono text-xs">{{ t.last_ok_ts or "—" }}</td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
 
-  <div class="rounded border border-[var(--border)] p-4">
-    <h2 class="text-lg font-semibold mb-2">Eventos recientes</h2>
-    <table class="min-w-full text-xs">
-      <thead><tr class="text-left">
-        <th class="px-3 py-1">Timestamp</th>
-        <th class="px-3 py-1">Op</th>
-        <th class="px-3 py-1">Status</th>
-        <th class="px-3 py-1">Target</th>
-        <th class="px-3 py-1">Error</th>
-      </tr></thead>
+  <div class="card overflow-hidden">
+    <div class="px-5 py-4 border-b border-[var(--border)]">
+      <h2 class="font-semibold">Eventos recientes</h2>
+    </div>
+    <table class="min-w-full text-sm">
+      <thead>
+        <tr>
+          <th class="text-left">Timestamp</th>
+          <th class="text-left">Op</th>
+          <th class="text-left">Status</th>
+          <th class="text-left">Target</th>
+          <th class="text-left">Error</th>
+        </tr>
+      </thead>
       <tbody>
       {% for e in events %}
-        <tr class="border-t border-[var(--border)]">
-          <td class="px-3 py-1 font-mono">{{ e.ts }}</td>
-          <td class="px-3 py-1">{{ e.op }}</td>
-          <td class="px-3 py-1 {% if e.status != 'ok' %}text-rose-400{% endif %}">{{ e.status }}</td>
-          <td class="px-3 py-1 font-mono">{{ e.target_label or "—" }}</td>
-          <td class="px-3 py-1">{{ e.error or "" }}</td>
+        <tr>
+          <td class="mono text-xs">{{ e.ts }}</td>
+          <td>{{ e.op }}</td>
+          <td>
+            {% if e.status == 'ok' %}
+              <span class="chip chip-emerald">{{ e.status }}</span>
+            {% else %}
+              <span class="chip chip-rose">{{ e.status }}</span>
+            {% endif %}
+          </td>
+          <td class="mono">{{ e.target_label or "—" }}</td>
+          <td class="text-xs">{{ e.error or "" }}</td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
-</section>
+</div>
 {% endblock %}

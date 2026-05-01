@@ -5,9 +5,11 @@ import logging
 
 from flask import Blueprint, current_app, jsonify, request
 
+from . import inventory as inv_mod
 from . import models as m
 from . import tokens as tok
 from . import schema as sch
+from ..config import Config
 
 log = logging.getLogger(__name__)
 
@@ -61,5 +63,20 @@ def heartbeat():
 
     res = m.apply_heartbeat(db, payload, token_id=info.id,
                             client_id=info.client_id, src_ip=_client_meta())
+
+    # Best-effort: si el cliente mandó su inventario embebido, lo
+    # materializamos en drive_inventory. Fallar acá NO debe romper el
+    # ack del heartbeat — el botón "Refrescar" del central siempre puede
+    # rehacer el scan completo desde Drive.
+    inventory_leaves = 0
+    if payload.get("inventory"):
+        try:
+            inventory_leaves = inv_mod.apply_client_inventory(
+                db, payload, shrink_pct=Config.ALERTS_SHRINK_PCT,
+            )
+        except Exception:
+            log.exception("inventory: client_push failed (heartbeat OK)")
+
     return jsonify(ok=True, event_id=payload["event_id"],
-                   target_id=res.target_id), 200
+                   target_id=res.target_id,
+                   inventory_leaves=inventory_leaves), 200

@@ -41,9 +41,14 @@ def _local_conf_path() -> Path:
 
 def _read(path: Path) -> dict[str, str]:
     out: dict[str, str] = {}
-    if not path.exists():
+    try:
+        text = path.read_text()
+    except OSError:
+        # No existe, o no podemos leerlo (proceso no-root con local.conf 0600).
+        # Mismo trade-off que backend/config.py:_read_shell_conf — degradamos a
+        # dict vacío en lugar de hacer crash al import time.
         return out
-    for line in path.read_text().splitlines():
+    for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -403,6 +408,56 @@ def set_alerts_config(values: dict) -> dict:
             Config.ALERTS_WEBHOOK = updates["ALERTS_WEBHOOK"]
 
     return get_alerts_config()
+
+
+# ---------------------------------------------------------------------------
+# Central-only: AUDIT_REMOTE_PATH + SNAPSHOT_AUDIT_VIEWER
+# ---------------------------------------------------------------------------
+
+# Permitimos slashes y espacios escapados para nombres como "Mi unidad/backups".
+_REMOTE_PATH_RE = re.compile(r"^[A-Za-z0-9 _./\-]{1,256}$")
+
+
+def get_central_config() -> dict:
+    vals = _read(_local_conf_path())
+    # Devolvemos el valor real (incluido string vacío si el operador lo
+    # limpió a propósito = scan desde la raíz del Drive). El default
+    # "snapshots" del modelo legacy ya no se inyecta acá.
+    raw = (vals.get("AUDIT_REMOTE_PATH") or "").strip().strip("/")
+    return {
+        "audit_remote_path": raw,
+        "audit_viewer_enabled": (vals.get("SNAPSHOT_AUDIT_VIEWER") or "0") == "1",
+        "rclone_remote": vals.get("RCLONE_REMOTE", "gdrive"),
+    }
+
+
+def set_central_config(values: dict) -> dict:
+    updates: dict[str, str] = {}
+
+    if "audit_remote_path" in values:
+        # Vacío o "/" = raíz del Drive (consistente con lo que el UI
+        # promete en el placeholder del Paso 3). Solo se valida cuando
+        # tiene contenido real.
+        raw = (values.get("audit_remote_path") or "").strip().strip("/")
+        if raw and not _REMOTE_PATH_RE.match(raw):
+            raise ArchiveConfigError(
+                "audit_remote_path inválido. Permitido: letras, dígitos, '_', '.', '-', '/'"
+            )
+        updates["AUDIT_REMOTE_PATH"] = raw
+
+    if "audit_viewer_enabled" in values:
+        updates["SNAPSHOT_AUDIT_VIEWER"] = "1" if values["audit_viewer_enabled"] else "0"
+
+    if updates:
+        _write_back(updates)
+        # Refleja en memoria para que el siguiente request use el valor nuevo
+        # sin esperar al restart de gunicorn.
+        if "AUDIT_REMOTE_PATH" in updates:
+            Config.AUDIT_REMOTE_PATH = updates["AUDIT_REMOTE_PATH"]
+        if "SNAPSHOT_AUDIT_VIEWER" in updates:
+            Config.AUDIT_ENABLED = updates["SNAPSHOT_AUDIT_VIEWER"] == "1"
+
+    return get_central_config()
 
 
 def generate_keypair() -> dict:

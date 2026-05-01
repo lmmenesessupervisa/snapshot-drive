@@ -63,9 +63,31 @@ class Config:
         or "https://www.googleapis.com/auth/drive"
     )
 
-    # Vista /audit — agregación del shared Drive (solo ops, OFF por defecto).
-    AUDIT_ENABLED = (_CONF.get("SNAPSHOT_AUDIT_VIEWER") or os.getenv("SNAPSHOT_AUDIT_VIEWER") or "0") == "1"
-    AUDIT_REMOTE_PATH = os.getenv("AUDIT_REMOTE_PATH") or _CONF.get("AUDIT_REMOTE_PATH") or "snapshots"
+    # ─── Sub-proyecto B: despliegue dual (definido temprano para que
+    # AUDIT_ENABLED pueda derivar su default según MODE) ────────────────
+    _MODE_RAW = (os.getenv("MODE") or _CONF.get("MODE") or "client").strip().lower()
+    MODE = _MODE_RAW if _MODE_RAW in ("client", "central") else "client"
+
+    # Vista /audit — agregación del shared Drive.
+    # En MODE=client: OFF por default (un cliente no debe poder ver el resto del fleet).
+    # En MODE=central: ON por default — la auditoría ES la razón de existir del central.
+    # Override explícito siempre gana, así que el operador puede apagarla en
+    # central si quiere usar la VM como puro relay de heartbeats.
+    _AUDIT_RAW = os.getenv("SNAPSHOT_AUDIT_VIEWER")
+    if _AUDIT_RAW is None:
+        _AUDIT_RAW = _CONF.get("SNAPSHOT_AUDIT_VIEWER")
+    if _AUDIT_RAW is None or _AUDIT_RAW == "":
+        _AUDIT_RAW = "1" if _MODE_RAW == "central" else "0"
+    AUDIT_ENABLED = _AUDIT_RAW == "1"
+    # Distinguir "no definido" de "explícitamente vacío" (= raíz del Drive,
+    # según el contrato del UI Paso 3). `or ""` perdía el valor vacío.
+    _ARP_ENV = os.getenv("AUDIT_REMOTE_PATH")
+    if _ARP_ENV is not None:
+        AUDIT_REMOTE_PATH = _ARP_ENV
+    elif "AUDIT_REMOTE_PATH" in _CONF:
+        AUDIT_REMOTE_PATH = _CONF["AUDIT_REMOTE_PATH"]
+    else:
+        AUDIT_REMOTE_PATH = "snapshots"  # default histórico para installs viejas
     RCLONE_CONFIG = Path(
         os.getenv("RCLONE_CONFIG")
         or _CONF.get("RCLONE_CONFIG")
@@ -88,10 +110,7 @@ class Config:
     ARCHIVE_KEEP_MONTHS = int(_CONF.get("ARCHIVE_KEEP_MONTHS", "12") or 12)
 
     # ─── Sub-proyecto B: despliegue dual ─────────────────────────────────
-    # MODE controla qué blueprints carga app.py. Default "client".
-    _MODE_RAW = (os.getenv("MODE") or _CONF.get("MODE") or "client").strip().lower()
-    MODE = _MODE_RAW if _MODE_RAW in ("client", "central") else "client"
-
+    # MODE se definió arriba (antes de AUDIT_ENABLED para poder derivar su default).
     # Solo relevante en client mode: dónde postear heartbeats.
     CENTRAL_URL = (os.getenv("CENTRAL_URL") or _CONF.get("CENTRAL_URL") or "").rstrip("/")
     CENTRAL_TOKEN = os.getenv("CENTRAL_TOKEN") or _CONF.get("CENTRAL_TOKEN") or ""

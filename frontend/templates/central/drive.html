@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}Drive del central{% endblock %}
+{% block header %}Drive del central{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl space-y-6">
+
+  <p class="text-sm text-[var(--muted)]">
+    El central usa Google Drive solo para <b>leer</b> los backups que los
+    clientes suben. No respalda nada propio. Vincula la misma cuenta (o
+    Shared Drive) que los clientes usan como destino, y configura la carpeta
+    raíz que la auditoría va a escanear.
+  </p>
+
+  <!-- Estado actual -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+      <h2 class="font-semibold">Estado de la vinculación</h2>
+      <button id="cd-refresh" class="text-xs text-brand-500 hover:underline">refrescar</button>
+    </div>
+    <div class="p-5 text-sm" id="cd-status">Cargando…</div>
+  </div>
+
+  <!-- Vincular Drive -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-[var(--border)]">
+      <h2 class="font-semibold">Paso 1 · Vincular cuenta de Google</h2>
+    </div>
+    <div class="p-5 space-y-4 text-sm">
+      <p class="text-[var(--muted)]">
+        En tu workstation con browser, instala rclone, ejecuta
+        <code class="mono">rclone authorize "drive"</code>, autoriza con la
+        cuenta corporativa donde están los backups, y pega el JSON
+        resultante abajo. rclone se encarga de rotar el token
+        automáticamente — no tienes que repetirlo.
+      </p>
+
+      <details class="rounded border border-[var(--border)] bg-[var(--sidebar)]">
+        <summary class="px-4 py-2 cursor-pointer select-none text-sm font-medium">
+          ¿No tienes rclone? Instalación rápida
+        </summary>
+        <div class="px-4 py-3 space-y-3 border-t border-[var(--border)]">
+          <div>
+            <div class="text-xs font-semibold text-[var(--muted)] mb-1">Windows (PowerShell, requiere winget)</div>
+            <pre class="mono text-xs bg-[var(--muted-surface)] border border-[var(--border)] rounded px-3 py-2 overflow-x-auto">winget install Rclone.Rclone</pre>
+            <div class="text-xs text-[var(--muted)] mt-1">
+              Alternativa: descargar el zip desde
+              <a href="https://rclone.org/downloads/" target="_blank" rel="noopener" class="text-brand-500 hover:underline">rclone.org/downloads</a>
+              y agregar la carpeta al PATH.
+            </div>
+          </div>
+          <div>
+            <div class="text-xs font-semibold text-[var(--muted)] mb-1">Linux / macOS</div>
+            <pre class="mono text-xs bg-[var(--muted-surface)] border border-[var(--border)] rounded px-3 py-2 overflow-x-auto">curl https://rclone.org/install.sh | sudo bash</pre>
+            <div class="text-xs text-[var(--muted)] mt-1">
+              O vía gestor de paquetes: <code class="mono">apt install rclone</code> ·
+              <code class="mono">brew install rclone</code> ·
+              <code class="mono">dnf install rclone</code>.
+            </div>
+          </div>
+          <div class="text-xs text-[var(--muted)]">
+            Una vez instalado, en una terminal con browser disponible corre
+            <code class="mono">rclone authorize "drive"</code>. Se abrirá
+            Google → autoriza → rclone imprimirá el JSON del token.
+            Cópialo entero (incluye las llaves <code class="mono">{ }</code>) y pégalo abajo.
+          </div>
+        </div>
+      </details>
+
+      <div>
+        <label class="text-xs text-[var(--muted)]">Token JSON de rclone</label>
+        <textarea id="cd-token" rows="4" class="input mono"
+                  placeholder='{"access_token":"...","token_type":"Bearer","refresh_token":"...","expiry":"..."}'></textarea>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button id="cd-link"   class="btn-primary">Vincular</button>
+        <button id="cd-unlink" class="btn-danger">Desvincular</button>
+      </div>
+
+      <p id="cd-link-msg" class="hidden text-xs"></p>
+    </div>
+  </div>
+
+  <!-- Target Drive (personal vs shared) -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+      <h2 class="font-semibold">Paso 2 · Dónde están los backups en Drive</h2>
+      <button id="cd-refresh-shared" class="text-xs text-brand-500 hover:underline">refrescar unidades</button>
+    </div>
+    <div class="p-5 space-y-4 text-sm">
+      <div class="space-y-2">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="cd-target" value="personal" checked>
+          <span><b>Mi unidad personal</b> (Drive del usuario vinculado)</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="cd-target" value="shared">
+          <span><b>Unidad compartida</b> (Shared Drive de Workspace)</span>
+        </label>
+      </div>
+      <div id="cd-shared-wrap" class="hidden">
+        <select id="cd-shared-select" class="input"></select>
+      </div>
+      <button id="cd-save-target" class="btn-primary">Guardar destino</button>
+    </div>
+  </div>
+
+  <!-- Carpeta raíz de auditoría -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-[var(--border)]">
+      <h2 class="font-semibold">Paso 3 · Carpeta raíz que va a auditar</h2>
+    </div>
+    <div class="p-5 space-y-4 text-sm">
+      <p class="text-[var(--muted)]">
+        Carpeta dentro del Drive donde los clientes están subiendo los
+        archivos <code class="mono">.tar.zst</code>. La taxonomía esperada
+        debajo de esta raíz es
+        <code class="mono">proyecto/entorno/pais/{os|db}/{linux|engine}/host/AAAA/MM/DD/&lt;archivo&gt;</code>.
+        Vacía o <code class="mono">/</code> = raíz del Drive.
+      </p>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+        <div class="md:col-span-2">
+          <label class="text-xs text-[var(--muted)]">AUDIT_REMOTE_PATH</label>
+          <input id="cd-remote-path" class="input mono" placeholder="vacío = raíz del Drive">
+        </div>
+        <label class="inline-flex items-center gap-2 text-xs text-[var(--muted)]">
+          <input id="cd-viewer-toggle" type="checkbox" class="accent-brand-500">
+          Habilitar vista de auditoría
+        </label>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button id="cd-save-path" class="btn-primary">Guardar</button>
+        <span class="text-xs text-[var(--muted)]" id="cd-path-saved-hint"></span>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/central/drive.js') }}" defer></script>
+{% endblock %}

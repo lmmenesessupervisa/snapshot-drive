@@ -1,18 +1,20 @@
-// Audit dashboard — agrega estados de clientes leídos del shared Drive
-// vía /audit/api/status. Auto-refresh cada 30s, drill-down por fila.
+// /audit · vista "Mis backups" — solo MODE=client.
+// Lee /audit/api/local (filtrada al proyecto/entorno/pais/host de este server)
+// y renderiza KPIs + tabla de backup blocks (sistema + DBs) con filtros pro.
 
 const $ = (id) => document.getElementById(id);
-const $$ = (sel) => document.querySelectorAll(sel);
 
 const STATE = {
   data: null,
   filterText: "",
-  failOnly: false,
-  expanded: new Set(),
-  refreshTimer: null,
+  filterType: "all",       // all|os|db
+  filterEngine: "all",     // all|linux|postgres|mysql|mongo
+  filterCrypto: "all",     // all|encrypted|plain
+  filterShrunk: false,
 };
 
-function fmtSize(n) {
+// ---------- formatters ----------
+function fmtBytes(n) {
   if (n == null) return "—";
   const u = ["B", "KB", "MB", "GB", "TB"];
   let i = 0, x = Number(n);
@@ -20,226 +22,262 @@ function fmtSize(n) {
   return `${x.toFixed(i ? 1 : 0)} ${u[i]}`;
 }
 
-function fmtDuration(s) {
-  if (s == null) return "—";
-  s = Math.max(0, Math.round(Number(s)));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60), ss = s % 60;
-  if (m < 60) return `${m}m ${ss}s`;
-  const h = Math.floor(m / 60), mm = m % 60;
-  return `${h}h ${mm}m`;
-}
-
-function fmtAge(hours) {
-  if (hours == null) return "—";
-  if (hours < 1) return `${Math.round(hours * 60)}m`;
-  if (hours < 24) return `${hours.toFixed(1)}h`;
-  return `${(hours / 24).toFixed(1)}d`;
-}
-
-function fmtTs(ts) {
-  if (!ts) return "—";
+function fmtTs(iso) {
+  if (!iso) return "—";
   try {
-    const d = new Date(ts);
-    if (isNaN(d.getTime())) return ts;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
     return d.toLocaleString("es-ES", {
       year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+      hour: "2-digit", minute: "2-digit", hour12: false,
     });
-  } catch { return ts; }
+  } catch { return iso; }
 }
 
-function healthChip(h) {
-  const cfg = {
-    ok:         { bg: "bg-emerald-500/15", bd: "border-emerald-500/40", tx: "text-emerald-300", label: "OK" },
-    fail:       { bg: "bg-rose-500/15",    bd: "border-rose-500/40",    tx: "text-rose-300",    label: "FALLO" },
-    silent:     { bg: "bg-amber-500/15",   bd: "border-amber-500/40",   tx: "text-amber-300",   label: "SILENCIO" },
-    running:    { bg: "bg-sky-500/15",     bd: "border-sky-500/40",     tx: "text-sky-300",     label: "EN CURSO" },
-    unreported: { bg: "bg-violet-500/15",  bd: "border-violet-500/40",  tx: "text-violet-300",  label: "SIN REPORTAR" },
-    unknown:    { bg: "bg-slate-500/15",   bd: "border-slate-500/40",   tx: "text-slate-300",   label: "—" },
-  }[h] || { bg: "bg-slate-500/15", bd: "border-slate-500/40", tx: "text-slate-300", label: h };
-  return `<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border ${cfg.bg} ${cfg.bd} ${cfg.tx}">${cfg.label}</span>`;
+function ageHuman(iso) {
+  if (!iso) return "—";
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return "—";
+  const h = (Date.now() - t) / 3600000;
+  if (h < 1) return `hace ${Math.round(h * 60)}min`;
+  if (h < 24) return `hace ${h.toFixed(1)}h`;
+  return `hace ${(h / 24).toFixed(1)}d`;
 }
 
-function opLabel(op) {
-  return ({ create: "Crear", reconcile: "Reconciliar", prune: "Purgar", init: "Inicializar" })[op] || op || "—";
+function ageDays(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return (Date.now() - d.getTime()) / 86400000;
 }
 
-// Cuenta OK/FAIL: prefiere los contadores del totals (acumulativos), y si
-// no existen (status.json viejos sin ok_count) deriva del history que se
-// envía al cliente (últimos N eventos, no total histórico — esto es una
-// aproximación; para el conteo real el backend escribe ok_count desde
-// ahora).
-function countFromHistory(history, status) {
-  return (history || []).filter(h => h.status === status).length;
+function ageChip(iso) {
+  const days = ageDays(iso);
+  if (days == null) return '<span class="chip chip-slate">sin fecha</span>';
+  if (days < 1) return `<span class="chip chip-emerald">${Math.round(days * 24)}h</span>`;
+  if (days < 7) return `<span class="chip chip-emerald">${days.toFixed(1)}d</span>`;
+  if (days < 14) return `<span class="chip chip-amber">${days.toFixed(0)}d</span>`;
+  return `<span class="chip chip-rose">${days.toFixed(0)}d</span>`;
 }
 
-function clientRow(c) {
-  const last = c.last || {};
-  const totals = c.totals || {};
-  const okCount   = (totals.ok_count   != null) ? totals.ok_count
-                  : (totals.create_count != null ? totals.create_count
-                  : countFromHistory(c.history, "ok"));
-  const failCount = (totals.fail_count != null) ? totals.fail_count
-                  : countFromHistory(c.history, "fail");
-  const target = last.target ? `<span class="text-[var(--muted-2)]">· ${last.target}</span>` : "";
-  const tag = last.tag ? `<span class="text-[var(--muted-2)]">#${last.tag}</span>` : "";
-  const expanded = STATE.expanded.has(c.host);
-
-  return `
-    <tr class="border-t border-[var(--border)] hover:bg-white/[0.03] cursor-pointer" data-host="${c.host}" data-role="row">
-      <td class="py-3 px-4 font-mono text-slate-100">${c.host}</td>
-      <td class="py-3 px-4">${healthChip(c.health)}</td>
-      <td class="py-3 px-4 text-xs text-[var(--muted)]">
-        <div>${opLabel(last.op)} ${tag}</div>
-        <div class="mono text-[var(--muted-2)]">${fmtTs(last.ts)} ${target}</div>
-      </td>
-      <td class="py-3 px-4 text-right mono text-xs text-slate-300">${fmtTs(totals.last_successful_backup_ts)}</td>
-      <td class="py-3 px-4 text-right mono text-xs ${c.silent_hours > 36 ? 'text-amber-300' : 'text-[var(--muted)]'}">${fmtAge(c.silent_hours)}</td>
-      <td class="py-3 px-4 text-right mono text-xs">
-        <span class="text-emerald-300">${okCount}</span>
-        <span class="text-[var(--muted-2)] mx-1">/</span>
-        <span class="text-rose-300">${failCount}</span>
-      </td>
-      <td class="py-3 px-4 pr-6 text-right">
-        <svg class="w-4 h-4 inline-block transition-transform ${expanded ? 'rotate-180' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-      </td>
-    </tr>
-    ${expanded ? drilldownRow(c) : ""}
-  `;
+function cryptoChip(c) {
+  return ({
+    age: '<span class="chip chip-emerald">age</span>',
+    openssl: '<span class="chip chip-amber">openssl</span>',
+    none: '<span class="chip chip-slate">sin cifrar</span>',
+  })[c] || `<span class="chip chip-slate">${c}</span>`;
 }
 
-function drilldownRow(c) {
-  if (c.health === "unreported") {
-    return `
-      <tr class="border-t border-[var(--border)] bg-black/30">
-        <td colspan="7" class="p-0">
-          <div class="px-10 py-4 text-xs text-[var(--muted)]">
-            <div class="text-[11px] uppercase tracking-wider mb-2 text-violet-300">Sin reportar · ${c.host}</div>
-            Existe un repo restic en el Drive para este cliente, pero todavía no
-            hay un <code class="mono">_status/${c.host}.json</code>. Probablemente
-            corre una versión anterior de snapctl que no escribe metadata.
-            <div class="mt-2 text-[var(--muted-2)]">
-              Para activarlo, en esa máquina:
-              <pre class="mt-1 mono text-[11px] bg-black/40 rounded p-2 text-slate-300">cd ~/snapshot-drive &amp;&amp; git pull &amp;&amp; sudo bash install.sh
-sudo snapctl create --tag post-upgrade</pre>
-            </div>
-          </div>
-        </td>
-      </tr>
-    `;
+function engineChip(engine) {
+  return ({
+    linux: '<span class="chip chip-violet">os/linux</span>',
+    postgres: '<span class="chip chip-sky">postgres</span>',
+    mysql: '<span class="chip chip-amber">mysql</span>',
+    mongo: '<span class="chip chip-emerald">mongo</span>',
+  })[engine] || `<span class="chip chip-slate">${engine}</span>`;
+}
+
+function shrinkChip(b) {
+  if (!b || !b.shrunk) return "";
+  const pct = (b.shrink_delta_pct != null) ? b.shrink_delta_pct.toFixed(1) : "?";
+  const prev = (b.prev_size != null) ? fmtBytes(b.prev_size) : "?";
+  const curr = (b.newest_size != null) ? fmtBytes(b.newest_size) : "?";
+  return `<span class="chip chip-amber" title="último: ${curr} · anterior: ${prev}">⚠ ${pct}% menor</span>`;
+}
+
+// ---------- KPIs ----------
+function renderKpis() {
+  const s = STATE.data?.summary || {};
+  $("lk-size").textContent = fmtBytes(s.size_bytes);
+  $("lk-files-sub").textContent = `${s.files ?? 0} archivo${s.files === 1 ? '' : 's'}`;
+  $("lk-sys-files").textContent = s.system_files ?? 0;
+  $("lk-sys-size").textContent  = fmtBytes(s.system_size);
+  $("lk-db-files").textContent  = s.db_files ?? 0;
+  $("lk-db-size").textContent   = fmtBytes(s.db_size);
+  const totalFiles = s.files || 0;
+  const enc = s.encrypted_files ?? 0;
+  $("lk-encrypted").textContent = enc;
+  $("lk-encrypted-sub").textContent = totalFiles
+    ? `${Math.round(100 * enc / totalFiles)}% del total`
+    : "0% del total";
+  $("lk-last").textContent = fmtTs(s.last_backup_ts);
+  $("lk-last-age").textContent = ageHuman(s.last_backup_ts);
+
+  const sh = s.shrunk ?? 0;
+  $("lk-shrunk").textContent = sh;
+  $("lk-shrunk").className = "text-3xl font-semibold mt-2 " +
+    (sh > 0 ? "text-amber-300" : "text-[var(--muted)]");
+  $("lk-shrink-pct").textContent = s.shrink_pct_threshold ?? 20;
+
+  const banner = $("local-shrink-banner");
+  if (sh > 0) {
+    $("local-shrink-msg").textContent =
+      `${sh} backup${sh === 1 ? '' : 's'} más reciente${sh === 1 ? '' : 's'} pesa${sh === 1 ? '' : 'n'} al menos ${s.shrink_pct_threshold ?? 20}% menos que el anterior. Verifica que no falten directorios o tablas.`;
+    banner.classList.remove("hidden");
+  } else {
+    banner.classList.add("hidden");
   }
-  const rows = (c.history || []).slice(0, 20).map(h => {
-    const tx = h.status === "ok" ? "text-emerald-300" : h.status === "fail" ? "text-rose-300" : "text-sky-300";
-    const err = h.error ? `<div class="text-rose-400 text-[11px] mt-0.5">${h.error}</div>` : "";
+
+  if (s.scanned_at) {
+    $("audit-last-ts").textContent = new Date(s.scanned_at * 1000).toLocaleTimeString("es-ES", { hour12: false });
+  }
+}
+
+// ---------- Block render ----------
+function blockTitle(b) {
+  if (b.category === "os" && b.subkey === "linux") return "Backup mensual del sistema";
+  return `Backup DB · ${b.subkey}`;
+}
+
+function passesFilter(b) {
+  if (STATE.filterType === "os" && b.category !== "os") return false;
+  if (STATE.filterType === "db" && b.category !== "db") return false;
+  if (STATE.filterEngine !== "all" && b.engine !== STATE.filterEngine) return false;
+  if (STATE.filterShrunk && !b.shrunk) return false;
+  if (STATE.filterCrypto === "encrypted" && b.encrypted_count === 0) return false;
+  if (STATE.filterCrypto === "plain" && b.encrypted_count === b.count) return false;
+  if (STATE.filterText) {
+    const needle = STATE.filterText.toLowerCase();
+    const hay =
+      b.subkey.toLowerCase().includes(needle) ||
+      b.category.toLowerCase().includes(needle) ||
+      (b.recent || []).some(f => f.name.toLowerCase().includes(needle));
+    if (!hay) return false;
+  }
+  return true;
+}
+
+function renderBlock(b) {
+  const recent = (b.recent || []).map((f, i) => {
+    const isNewest = i === 0;
+    const dot = isNewest && b.shrunk
+      ? '<span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 mr-1.5" title="encogido vs anterior"></span>'
+      : '';
     return `
-      <tr>
-        <td class="py-1.5 pl-2 pr-3 mono text-xs text-[var(--muted)]">${fmtTs(h.ts)}</td>
-        <td class="py-1.5 px-3 text-xs">${opLabel(h.op)}</td>
-        <td class="py-1.5 px-3 text-xs ${tx} uppercase font-semibold">${h.status || "—"}</td>
-        <td class="py-1.5 px-3 mono text-xs">${fmtDuration(h.duration_s)}</td>
-        <td class="py-1.5 px-3 text-xs text-[var(--muted-2)]">${h.tag ? "#" + h.tag : ""} ${h.target || ""}</td>
-        <td class="py-1.5 pr-2 text-xs">${err}</td>
+      <tr ${isNewest && b.shrunk ? 'class="bg-amber-500/5"' : ''}>
+        <td class="mono text-xs py-1.5">${dot}${fmtTs(f.ts_iso)}</td>
+        <td class="mono text-xs py-1.5">${fmtBytes(f.size)}</td>
+        <td class="py-1.5">${cryptoChip(f.crypto)}</td>
+        <td class="mono text-[11px] text-[var(--muted-2)] py-1.5 break-all">${f.path}</td>
       </tr>
     `;
   }).join("");
 
-  const empty = `<tr><td colspan="6" class="py-3 text-center text-[var(--muted)] text-xs">Sin historial.</td></tr>`;
-
   return `
-    <tr class="border-t border-[var(--border)] bg-black/30">
-      <td colspan="7" class="p-0">
-        <div class="px-10 py-4">
-          <div class="text-[11px] uppercase tracking-wider text-[var(--muted)] mb-2">Historial · ${c.host}</div>
-          <table class="w-full">
-            ${rows || empty}
-          </table>
+    <div class="card audit-bk-block ${b.shrunk ? 'border-amber-500/40' : ''}">
+      <div class="audit-bk-header px-5 py-3">
+        <div class="flex items-center gap-2 flex-wrap">
+          ${engineChip(b.engine)}
+          <span class="font-semibold text-sm">${blockTitle(b)}</span>
+          ${shrinkChip(b)}
+          ${b.encrypted_count > 0
+            ? `<span class="chip chip-emerald">${b.encrypted_count}/${b.count} cifrado${b.count === 1 ? '' : 's'}</span>`
+            : ''}
         </div>
-      </td>
-    </tr>
+        <div class="flex items-center gap-3 text-xs text-[var(--muted)] flex-wrap">
+          <span>${b.count} archivo${b.count === 1 ? '' : 's'}</span>
+          <span class="mono">${fmtBytes(b.size)}</span>
+          <span>último: <b class="mono">${fmtTs(b.newest_ts)}</b></span>
+          <span>${ageChip(b.newest_ts)}</span>
+        </div>
+      </div>
+      <div class="px-3 pb-3">
+        <table class="w-full audit-bk-table">
+          <thead>
+            <tr>
+              <th class="text-left">Fecha</th>
+              <th class="text-left">Tamaño</th>
+              <th class="text-left">Cifrado</th>
+              <th class="text-left">Path en Drive</th>
+            </tr>
+          </thead>
+          <tbody>${recent || `<tr><td colspan="4" class="text-center text-xs text-[var(--muted)] py-2">sin archivos</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
   `;
 }
 
-function applyFilters(clients) {
-  let out = clients;
-  if (STATE.failOnly) {
-    // "Atención" = fallidos, silenciosos o sin reportar (estados que piden acción).
-    out = out.filter(c => c.health === "fail" || c.health === "silent" || c.health === "unreported");
-  }
-  if (STATE.filterText) {
-    const needle = STATE.filterText.toLowerCase();
-    out = out.filter(c => c.host.toLowerCase().includes(needle));
-  }
-  return out;
-}
-
-function renderTable() {
+function renderBlocks() {
   if (!STATE.data) return;
-  const tbody = $("audit-rows");
-  const filtered = applyFilters(STATE.data.clients);
+  const root = $("local-blocks");
+  const all = [];
+  if (STATE.data.system) all.push(STATE.data.system);
+  for (const d of STATE.data.databases || []) all.push(d);
+  const filtered = all.filter(passesFilter);
+
+  $("local-result-count").textContent =
+    `${filtered.length} de ${all.length} bloque${all.length === 1 ? '' : 's'}`;
 
   if (!filtered.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="py-10 text-center text-[var(--muted)]">Sin resultados.</td></tr>`;
+    root.innerHTML = `<div class="card p-8 text-center text-[var(--muted)]">Sin resultados con los filtros activos.</div>`;
     return;
   }
-  tbody.innerHTML = filtered.map(clientRow).join("");
-
-  tbody.querySelectorAll('[data-role="row"]').forEach(tr => {
-    tr.addEventListener("click", () => {
-      const host = tr.dataset.host;
-      if (STATE.expanded.has(host)) STATE.expanded.delete(host);
-      else STATE.expanded.add(host);
-      renderTable();
-    });
-  });
+  root.innerHTML = filtered.map(renderBlock).join("");
 }
 
-function renderKpis() {
-  const s = STATE.data?.summary || {};
-  $("kpi-total").textContent      = s.total      ?? "0";
-  $("kpi-ok").textContent         = s.ok         ?? "0";
-  $("kpi-fail").textContent       = s.fail       ?? "0";
-  $("kpi-silent").textContent     = s.silent     ?? "0";
-  $("kpi-running").textContent    = s.running    ?? "0";
-  $("kpi-unreported").textContent = s.unreported ?? "0";
-  // Preferimos el updated_ts del backend (refleja la frescura real de rclone),
-  // no el reloj local en el momento del render.
-  const ts = STATE.data?.updated_ts;
-  $("audit-last-ts").textContent = ts
-    ? new Date(ts * 1000).toLocaleTimeString("es-ES", { hour12: false })
-    : "—";
+// ---------- Empty / unconfigured states ----------
+function renderUnconfigured() {
+  const f = STATE.data?.filter || {};
+  $("local-blocks").innerHTML = `
+    <div class="card p-8 text-center">
+      <div class="text-rose-300 font-semibold mb-2">Falta configurar la taxonomía de este cliente</div>
+      <div class="text-xs text-[var(--muted)] mb-3">
+        Ve a <a href="/settings" class="text-brand-500 underline">Ajustes</a> y configura
+        <code class="mono">BACKUP_PROYECTO</code>, <code class="mono">BACKUP_ENTORNO</code> y
+        <code class="mono">BACKUP_PAIS</code> antes de auditar tus propios backups.
+      </div>
+      <div class="text-[11px] text-[var(--muted-2)] mono">
+        Actual: ${f.proyecto || "?"}/${f.entorno || "?"}/${f.pais || "?"}/${f.label || "?"}
+      </div>
+    </div>
+  `;
 }
 
+function renderEmptyDrive() {
+  $("local-blocks").innerHTML = `
+    <div class="card p-8 text-center text-[var(--muted)]">
+      <div class="font-semibold text-slate-100 mb-1">Aún no hay backups en Drive para este cliente</div>
+      <div class="text-xs">
+        Ejecuta <code class="mono">sudo snapctl create</code> en este host o espera al próximo timer
+        (<code class="mono">snapshot@archive.timer</code>). Luego refresca esta vista.
+      </div>
+    </div>
+  `;
+}
+
+// ---------- Fetch ----------
 function showError(msg) {
   const el = $("audit-error");
   el.textContent = msg;
   el.classList.remove("hidden");
 }
-
 function hideError() { $("audit-error").classList.add("hidden"); }
 
-async function fetchStatus(force = false) {
-  // Pinta lo que haya en cache al instante (si hay) y dispara el refetch.
-  const cached = Cache.get("audit:status", null);
-  if (cached && !force) {
-    STATE.data = cached;
-    hideError();
-    renderKpis();
-    renderTable();
-  }
+async function fetchLocal(force = false) {
   try {
-    const url = "/audit/api/status" + (force ? "?force=1" : "");
-    const resp = await fetch(url, { credentials: "same-origin" });
-    if (resp.status === 401) { location.href = "/auth/login"; return; }
-    const body = await resp.json();
-    if (!body.ok) throw new Error(body.error || "error desconocido");
-    STATE.data = body;
-    Cache.set("audit:status", body);
+    const url = "/audit/api/local" + (force ? "?force=1" : "");
+    const r = await fetch(url, { credentials: "same-origin" });
+    if (r.status === 401) { location.href = "/auth/login"; return; }
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || "error desconocido");
+    STATE.data = j;
     hideError();
+
+    if (!j.configured) {
+      // KPIs en cero + estado "configura primero"
+      renderKpis();
+      renderUnconfigured();
+      return;
+    }
     renderKpis();
-    renderTable();
+    if ((j.summary?.files || 0) === 0) {
+      renderEmptyDrive();
+    } else {
+      renderBlocks();
+    }
   } catch (e) {
-    if (!cached) showError(`No se pudo cargar la auditoría: ${e.message}`);
+    showError("No se pudo cargar tus backups: " + e.message);
   }
 }
 
@@ -247,21 +285,47 @@ async function hardRefresh() {
   try {
     await apiFetch("/audit/api/refresh", { method: "POST", credentials: "same-origin" });
   } catch {}
-  Cache.invalidate("audit:");
-  await fetchStatus(true);
+  await fetchLocal(true);
 }
 
-$("btn-refresh").addEventListener("click", hardRefresh);
-$("filter-fail-only").addEventListener("change", (e) => {
-  STATE.failOnly = e.target.checked;
-  renderTable();
-});
-$("filter-search").addEventListener("input", (e) => {
-  STATE.filterText = e.target.value.trim();
-  renderTable();
-});
+// ---------- Wire ----------
+document.addEventListener("DOMContentLoaded", () => {
+  $("btn-refresh").addEventListener("click", hardRefresh);
 
-fetchStatus();
-// Auto-refresh cada 2 min, solo si el tab está visible (evita pegar al
-// rclone del backend cuando estás en otra pestaña).
-autoRefresh(() => fetchStatus(false), 120_000);
+  $("local-filter-text").addEventListener("input", (e) => {
+    STATE.filterText = e.target.value.trim(); renderBlocks();
+  });
+  $("local-filter-type").addEventListener("change", (e) => {
+    STATE.filterType = e.target.value; renderBlocks();
+  });
+  $("local-filter-engine").addEventListener("change", (e) => {
+    STATE.filterEngine = e.target.value; renderBlocks();
+  });
+  $("local-filter-crypto").addEventListener("change", (e) => {
+    STATE.filterCrypto = e.target.value; renderBlocks();
+  });
+  $("local-filter-shrunk").addEventListener("change", (e) => {
+    STATE.filterShrunk = e.target.checked; renderBlocks();
+  });
+
+  // KPIs clickeables → preset de filtros
+  document.querySelectorAll("[data-local-filter]").forEach(el => {
+    el.addEventListener("click", () => {
+      const v = el.dataset.localFilter;
+      if (v === "os" || v === "db") {
+        $("local-filter-type").value = v;
+        STATE.filterType = v;
+      } else if (v === "shrunk") {
+        $("local-filter-shrunk").checked = true;
+        STATE.filterShrunk = true;
+      }
+      renderBlocks();
+    });
+  });
+
+  fetchLocal();
+  // Auto-refresh suave cada 2 min mientras la pestaña esté visible.
+  if (typeof autoRefresh === "function") {
+    autoRefresh(() => fetchLocal(false), 120_000);
+  }
+});

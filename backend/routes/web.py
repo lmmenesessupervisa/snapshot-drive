@@ -3,7 +3,35 @@ from functools import wraps
 
 from flask import Blueprint, g, redirect, render_template
 
+from ..config import Config
+
 web_bp = Blueprint("web", __name__)
+
+
+def _is_central() -> bool:
+    return Config.MODE == "central"
+
+
+def central_only(view):
+    """Solo accesible si MODE=central. Si no, 404."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not _is_central():
+            from flask import abort
+            abort(404)
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def client_only(view):
+    """Solo accesible si MODE=client. En central redirige a auditoría —
+    los módulos del cliente local no aplican al operador del central."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if _is_central():
+            return redirect("/audit/")
+        return view(*args, **kwargs)
+    return wrapped
 
 
 # ---------------------------------------------------------------------------
@@ -68,25 +96,46 @@ def web_require_any_role(*roles):
 @web_bp.get("/")
 @web_require_login
 def index():
+    if _is_central():
+        return redirect("/audit/")
     return render_template("index.html", page="dashboard", current_user=g.current_user)
 
 
 @web_bp.get("/snapshots")
 @web_require_login
+@client_only
 def snapshots():
     return render_template("snapshots.html", page="snapshots", current_user=g.current_user)
 
 
 @web_bp.get("/logs")
 @web_require_any_role("admin", "operator")
+@client_only
 def logs():
     return render_template("logs.html", page="logs", current_user=g.current_user)
 
 
 @web_bp.get("/settings")
 @web_require_role("admin")
+@client_only
 def settings():
     return render_template("settings.html", page="settings", current_user=g.current_user)
+
+
+# ---------------------------------------------------------------------------
+# Central admin pages (solo MODE=central)
+# ---------------------------------------------------------------------------
+
+@web_bp.get("/central/drive")
+@web_require_role("admin")
+@central_only
+def central_drive_page():
+    """Configuración Drive del central: Device Flow + AUDIT_REMOTE_PATH."""
+    return render_template(
+        "central/drive.html",
+        page="central-drive",
+        current_user=g.current_user,
+    )
 
 
 # ---------------------------------------------------------------------------

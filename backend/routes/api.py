@@ -202,6 +202,44 @@ def oauth_device_poll():
     return _ok({"status": "linked"})
 
 
+# ---------- Central: AUDIT_REMOTE_PATH + audit-viewer toggle ----------
+@api_bp.get("/central/config")
+@require_role("admin")
+def central_config_get():
+    if Config.MODE != "central":
+        return _err("solo disponible en MODE=central", 404)
+    return _ok(archive_config.get_central_config())
+
+
+@api_bp.post("/central/config")
+@require_role("admin")
+def central_config_set():
+    if Config.MODE != "central":
+        return _err("solo disponible en MODE=central", 404)
+    payload = request.get_json(silent=True) or {}
+    try:
+        res = archive_config.set_central_config(payload)
+        _db().audit(
+            "api", "central-config",
+            f"audit_remote_path={res['audit_remote_path']} "
+            f"viewer={res['audit_viewer_enabled']}",
+        )
+        # Invalida caches de auditoría — la próxima request va a leer el path nuevo.
+        try:
+            from ..routes import audit as _audit_routes
+            if _audit_routes._service is not None:
+                _audit_routes._service.remote_path = res["audit_remote_path"]
+                _audit_routes._service.invalidate_cache()
+            if _audit_routes._tree_service is not None:
+                _audit_routes._tree_service.remote_path = res["audit_remote_path"]
+                _audit_routes._tree_service.invalidate_cache()
+        except Exception:
+            log.exception("no pude invalidar caches de auditoría")
+        return _ok(res)
+    except ArchiveConfigError as e:
+        return _err(str(e), 400)
+
+
 # ---------- Archive: configuración de taxonomía + password ----------
 @api_bp.get("/archive/config")
 @require_login

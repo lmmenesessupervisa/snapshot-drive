@@ -2,61 +2,55 @@
 {% block title %}Clientes — Central{% endblock %}
 {% block header %}Clientes{% endblock %}
 {% block content %}
-<section class="p-6">
-  <h1 class="text-2xl font-semibold mb-4">Clientes</h1>
+<div class="space-y-6">
 
   {% if g.current_user and g.current_user.role in ('admin', 'operator') %}
-  <form id="new-client" class="mb-6 flex gap-2 flex-wrap">
-    <input name="proyecto" placeholder="proyecto"
-           class="px-3 py-2 rounded border border-[var(--border)] bg-[var(--bg)]" required>
-    <input name="organizacion" placeholder="organización (opcional)"
-           class="px-3 py-2 rounded border border-[var(--border)] bg-[var(--bg)]">
-    <button type="submit" class="px-4 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white">
-      Crear cliente
-    </button>
-  </form>
+  <div class="card">
+    <div class="px-5 py-4 border-b border-[var(--border)]">
+      <h2 class="font-semibold">Nuevo cliente</h2>
+    </div>
+    <div class="p-5">
+      <form id="new-client" class="flex gap-2 flex-wrap items-center">
+        <input name="proyecto" placeholder="proyecto" class="input md:w-56" required>
+        <input name="organizacion" placeholder="organización (opcional)" class="input md:w-72">
+        <button type="submit" class="btn-primary">Crear cliente</button>
+      </form>
+    </div>
+  </div>
   {% endif %}
 
-  <table class="min-w-full text-sm rounded border border-[var(--border)]">
-    <thead class="bg-[var(--surface)]">
-      <tr>
-        <th class="text-left px-4 py-2">Proyecto</th>
-        <th class="text-left px-4 py-2">Organización</th>
-        <th class="text-left px-4 py-2">Contacto</th>
-        <th class="text-right px-4 py-2">Acciones</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for c in clients %}
-      <tr class="border-t border-[var(--border)]">
-        <td class="px-4 py-2 font-mono">
-          <a href="/dashboard-central/clients/{{ c.id }}"
-             class="text-brand-400 hover:underline">{{ c.proyecto }}</a>
-        </td>
-        <td class="px-4 py-2">{{ c.organizacion or "—" }}</td>
-        <td class="px-4 py-2">{{ c.contacto or "—" }}</td>
-        <td class="px-4 py-2 text-right">
-          <a href="/dashboard-central/clients/{{ c.id }}/tokens"
-             class="text-brand-400 hover:underline text-xs">tokens</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-<script>
-document.getElementById("new-client")?.addEventListener("submit", async e => {
-  e.preventDefault();
-  const fd = new FormData(e.target);
-  const r = await apiFetch("/api/admin/clients", {
-    method: "POST",
-    body: JSON.stringify({
-      proyecto: fd.get("proyecto"),
-      organizacion: fd.get("organizacion") || null,
-    }),
-  });
-  if (r.ok) location.reload();
-  else alert("Error: " + (await r.text()));
-});
-</script>
+  <div class="card overflow-hidden">
+    <div class="px-5 py-4 border-b border-[var(--border)]">
+      <h2 class="font-semibold">Clientes ({{ clients|length }})</h2>
+    </div>
+    <table class="min-w-full text-sm">
+      <thead>
+        <tr>
+          <th class="text-left">Proyecto</th>
+          <th class="text-left">Organización</th>
+          <th class="text-left">Contacto</th>
+          <th class="text-right">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in clients %}
+        <tr>
+          <td class="mono">
+            <a href="/dashboard-central/clients/{{ c.id }}" class="text-brand-500 hover:underline">{{ c.proyecto }}</a>
+          </td>
+          <td>{{ c.organizacion or "—" }}</td>
+          <td>{{ c.contacto or "—" }}</td>
+          <td class="text-right">
+            <a href="/dashboard-central/clients/{{ c.id }}/tokens" class="text-brand-500 hover:underline text-xs">tokens</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/central/clients.js') }}" defer></script>
 {% endblock %}
