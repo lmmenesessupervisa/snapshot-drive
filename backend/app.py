@@ -9,6 +9,7 @@ import logging.handlers
 import os
 import sqlite3
 import sys
+import threading
 from pathlib import Path
 
 # Permitir ejecución directa: python backend/app.py
@@ -33,6 +34,52 @@ from backend.services.snapctl import SnapctlService  # noqa: E402
 
 def _test_mode() -> bool:
     return os.getenv("SNAPSHOT_TEST_MODE") == "1"
+
+
+class ThreadLocalConn:
+    """Wrapper que da una conexión sqlite3 distinta a cada thread, todas
+    apuntando a la misma DB. Reemplaza el patrón viejo de un único
+    `auth_conn` compartido — que con varios threads de gunicorn pisaba
+    el state interno del cursor causando InterfaceError ("bad parameter
+    or other API misuse"). Cada thread crea su conexión perezosamente
+    la primera vez que la pide; las subsecuentes la reusan.
+
+    SQLite WAL maneja la concurrencia entre conexiones distintas:
+    lectores no se bloquean entre sí y la escritura se serializa con
+    busy_timeout=10s. Esto era seguro siempre que cada thread tuviera
+    SU PROPIA conexión — que es justo lo que faltaba.
+
+    Expone los métodos del Connection que usa el código: execute,
+    executemany, executescript, commit, rollback, in_transaction.
+    """
+
+    def __init__(self, db_path: str):
+        self._db_path = str(db_path)
+        self._local = threading.local()
+
+    def _conn(self) -> sqlite3.Connection:
+        c = getattr(self._local, "conn", None)
+        if c is None:
+            c = sqlite3.connect(
+                self._db_path,
+                isolation_level=None,        # autocommit; transacciones explícitas
+                check_same_thread=False,     # safety si Flask cambia de thread
+                timeout=10,                   # busy_timeout para esperar locks
+            )
+            c.row_factory = sqlite3.Row
+            c.execute("PRAGMA journal_mode=WAL")
+            c.execute("PRAGMA foreign_keys=ON")
+            self._local.conn = c
+        return c
+
+    def execute(self, *a, **kw):       return self._conn().execute(*a, **kw)
+    def executemany(self, *a, **kw):   return self._conn().executemany(*a, **kw)
+    def executescript(self, *a, **kw): return self._conn().executescript(*a, **kw)
+    def commit(self):                   return self._conn().commit()
+    def rollback(self):                 return self._conn().rollback()
+
+    @property
+    def in_transaction(self):           return self._conn().in_transaction
 
 
 def _setup_logging():
@@ -82,9 +129,12 @@ def create_app() -> Flask:
     master_key = load_secret_key()
     app.config["SECRET_KEY_BYTES"] = master_key
     app.config["SECRET_KEY"] = derive_key(master_key, info=b"flask-session")
-    auth_conn = sqlite3.connect(str(db_path), check_same_thread=False, isolation_level=None)
-    auth_conn.row_factory = sqlite3.Row  # named access (row["col"]) + posicional (row[0])
-    auth_conn.execute("PRAGMA journal_mode=WAL")
+    # auth_conn es ahora un wrapper thread-local: cada thread de gunicorn
+    # obtiene su propia conexión sqlite3, todas apuntando al mismo .db.
+    # Esto evita el InterfaceError ("bad parameter or other API misuse")
+    # que aparecía cuando varias XHRs en paralelo (p. ej. /settings)
+    # pisaban una única conexión compartida.
+    auth_conn = ThreadLocalConn(db_path)
     apply_migrations(auth_conn)
     app.config["DB_CONN"] = auth_conn
 
