@@ -52,86 +52,50 @@ function toggleSharedWrap() {
 }
 document.querySelectorAll('input[name="target"]').forEach(r => r.addEventListener('change', toggleSharedWrap));
 
-// ---------- OAuth Device Flow ----------
-let oauthState = null;
-
-function openOauthModal() { $('oauth-modal').classList.replace('hidden', 'flex'); }
-function closeOauthModal() {
-  $('oauth-modal').classList.replace('flex', 'hidden');
-  if (oauthState && oauthState.timer) clearTimeout(oauthState.timer);
-  oauthState = null;
+// ---------- Vinculación manual con token de rclone authorize ----------
+function setLinkMsg(text, kind) {
+  const el = $('link-msg');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove('hidden', 'text-rose-500', 'text-emerald-500', 'text-[var(--muted)]');
+  if (kind === 'error') el.classList.add('text-rose-500');
+  else if (kind === 'ok') el.classList.add('text-emerald-500');
+  else el.classList.add('text-[var(--muted)]');
 }
+function clearLinkMsg() { const el = $('link-msg'); if (el) el.classList.add('hidden'); }
 
-async function pollOauth() {
-  if (!oauthState) return;
-  if (Date.now() > oauthState.expiresAt) {
-    $('oauth-hint').textContent = 'El código expiró. Cierra e intenta de nuevo.';
-    $('oauth-hint').className = 'text-xs text-rose-400';
-    return;
+function validateRcloneToken(raw) {
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch { return 'El texto no es JSON válido. Pega el bloque completo que rclone te imprimió, incluyendo las llaves { }.'; }
+  if (typeof parsed !== 'object' || parsed === null) return 'El JSON debe ser un objeto.';
+  if (!parsed.access_token) return 'Falta access_token en el JSON.';
+  if (!parsed.refresh_token) {
+    return 'Falta refresh_token. Sin él, el token expira en ~1h y se pierde el acceso. Re-corre `rclone authorize "drive"`.';
   }
-  try {
-    const resp = await apiFetch('/api/drive/oauth/device/poll', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ device_code: oauthState.deviceCode }),
-    });
-    const body = await resp.json();
-    if (resp.status === 202) {
-      if (body.data && body.data.slow_down) oauthState.interval += 5;
-      oauthState.timer = setTimeout(pollOauth, oauthState.interval * 1000);
-      return;
-    }
-    if (!body.ok) {
-      $('oauth-hint').textContent = body.error || 'Error desconocido';
-      $('oauth-hint').className = 'text-xs text-rose-400';
-      return;
-    }
-    toast('Cuenta vinculada', 'success');
-    closeOauthModal();
-    await loadStatus();
-  } catch (e) {
-    $('oauth-hint').textContent = `Error de red: ${e.message}. Reintentando…`;
-    oauthState.timer = setTimeout(pollOauth, oauthState.interval * 1000);
-  }
+  return null;
 }
-
-$('btn-connect').onclick = async () => {
-  try {
-    toast('Solicitando código a Google…');
-    const data = await API.post('/drive/oauth/device/start', {});
-    $('oauth-code').textContent = data.user_code;
-    $('oauth-url').textContent = data.verification_url;
-    $('oauth-url').href = data.verification_url;
-    $('oauth-hint').textContent = 'Esperando autorización…';
-    $('oauth-hint').className = 'text-xs text-[var(--muted)]';
-    oauthState = {
-      deviceCode: data.device_code,
-      interval: data.interval || 5,
-      expiresAt: Date.now() + (data.expires_in || 1800) * 1000,
-      timer: null,
-    };
-    openOauthModal();
-    oauthState.timer = setTimeout(pollOauth, oauthState.interval * 1000);
-  } catch (e) { toast(e.message, 'error'); }
-};
-
-$('oauth-close').onclick = closeOauthModal;
-$('oauth-copy').onclick = async () => {
-  const ok = await copyText($('oauth-code').textContent);
-  toast(ok ? 'Código copiado' : 'No se pudo copiar — selecciona manualmente',
-        ok ? 'success' : 'error');
-};
 
 $('btn-link').onclick = async () => {
-  const token = $('token').value.trim();
-  if (!token) return toast('Pega el token JSON primero', 'error');
+  clearLinkMsg();
+  const raw = ($('token').value || '').trim();
+  if (!raw) {
+    setLinkMsg('Pega el JSON del token primero.', 'error');
+    return;
+  }
+  const err = validateRcloneToken(raw);
+  if (err) { setLinkMsg(err, 'error'); return; }
+  setLinkMsg('Vinculando…');
   try {
-    toast('Vinculando…');
-    await API.post('/drive/link', { token });
-    toast('Cuenta vinculada', 'success');
+    await API.post('/drive/link', { token: raw });
+    setLinkMsg('Drive vinculado.', 'ok');
     $('token').value = '';
+    toast('Cuenta vinculada', 'success');
     await loadStatus();
-  } catch (e) { toast(e.message, 'error'); }
+  } catch (e) {
+    setLinkMsg('Error: ' + e.message, 'error');
+    toast(e.message, 'error');
+  }
 };
 
 $('btn-unlink').onclick = async () => {

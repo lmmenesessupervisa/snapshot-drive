@@ -21,51 +21,57 @@
     </div>
     <div class="p-5 space-y-4 text-sm">
       <p class="text-[var(--muted)]">
-        Conecta tu cuenta de Google Drive desde aquí. Se muestra un código que ingresas en
-        <code class="mono">google.com/device</code> desde cualquier navegador. No se instala nada en tu equipo.
+        En tu workstation con browser, instala rclone, ejecuta
+        <code class="mono">rclone authorize "drive"</code>, autoriza con la
+        cuenta corporativa donde se subirán los backups, y pega el JSON
+        resultante abajo. rclone se encarga de rotar el token
+        automáticamente — no tienes que repetirlo.
       </p>
 
-      <div class="flex items-center gap-3">
-        <button id="btn-connect" class="btn-primary">Conectar con Google</button>
-        <button id="btn-unlink"  class="btn-danger">Desvincular</button>
-      </div>
-
-      <details class="bg-[var(--sidebar)] rounded-md p-3 border border-[var(--border)]">
-        <summary class="cursor-pointer text-[var(--muted)] text-xs">Método avanzado · pegar token JSON de rclone</summary>
-        <div class="mt-3 space-y-2">
-          <p class="text-[var(--muted)] text-xs">
-            Solo para administradores con un token generado con
-            <code class="mono">rclone authorize "drive"</code>.
-          </p>
-          <textarea id="token" rows="3" class="input mono text-xs"
-            placeholder='{"access_token":"ya29...","refresh_token":"1//0...","expiry":"..."}'></textarea>
-          <button id="btn-link" class="btn-primary text-xs">Vincular con token pegado</button>
+      <details class="rounded border border-[var(--border)] bg-[var(--sidebar)]">
+        <summary class="px-4 py-2 cursor-pointer select-none text-sm font-medium">
+          ¿No tienes rclone? Instalación rápida
+        </summary>
+        <div class="px-4 py-3 space-y-3 border-t border-[var(--border)]">
+          <div>
+            <div class="text-xs font-semibold text-[var(--muted)] mb-1">Windows (PowerShell, requiere winget)</div>
+            <pre class="mono text-xs bg-[var(--muted-surface)] border border-[var(--border)] rounded px-3 py-2 overflow-x-auto">winget install Rclone.Rclone</pre>
+            <div class="text-xs text-[var(--muted)] mt-1">
+              Alternativa: descargar el zip desde
+              <a href="https://rclone.org/downloads/" target="_blank" rel="noopener" class="text-brand-500 hover:underline">rclone.org/downloads</a>
+              y agregar la carpeta al PATH.
+            </div>
+          </div>
+          <div>
+            <div class="text-xs font-semibold text-[var(--muted)] mb-1">Linux / macOS</div>
+            <pre class="mono text-xs bg-[var(--muted-surface)] border border-[var(--border)] rounded px-3 py-2 overflow-x-auto">curl https://rclone.org/install.sh | sudo bash</pre>
+            <div class="text-xs text-[var(--muted)] mt-1">
+              O vía gestor de paquetes: <code class="mono">apt install rclone</code> ·
+              <code class="mono">brew install rclone</code> ·
+              <code class="mono">dnf install rclone</code>.
+            </div>
+          </div>
+          <div class="text-xs text-[var(--muted)]">
+            Una vez instalado, en una terminal con browser disponible corre
+            <code class="mono">rclone authorize "drive"</code>. Se abrirá
+            Google → autoriza → rclone imprimirá el JSON del token.
+            Cópialo entero (incluye las llaves <code class="mono">{ }</code>) y pégalo abajo.
+          </div>
         </div>
       </details>
-    </div>
-  </div>
 
-  <!-- Modal Device Flow -->
-  <div id="oauth-modal" class="fixed inset-0 z-50 hidden items-center justify-center modal-backdrop p-4">
-    <div class="modal-panel w-full max-w-md p-6 space-y-4">
-      <div class="flex items-start justify-between">
-        <h3 class="font-semibold text-lg">Autoriza con Google</h3>
-        <button id="oauth-close" class="text-[var(--muted)] hover:text-[var(--foreground)]">✕</button>
+      <div>
+        <label class="text-xs text-[var(--muted)]">Token JSON de rclone</label>
+        <textarea id="token" rows="4" class="input mono"
+                  placeholder='{"access_token":"...","token_type":"Bearer","refresh_token":"...","expiry":"..."}'></textarea>
       </div>
 
-      <ol class="text-sm space-y-2 list-decimal list-inside">
-        <li>Abre en cualquier navegador: <a id="oauth-url" href="#" target="_blank" rel="noopener"
-            class="text-brand-500 underline">google.com/device</a></li>
-        <li>Introduce este código:
-          <div class="mt-2 bg-[var(--muted-surface)] border border-[var(--border)] rounded px-3 py-2 flex items-center justify-between">
-            <code id="oauth-code" class="mono text-xl tracking-widest">—</code>
-            <button id="oauth-copy" class="text-xs text-brand-500 hover:underline">copiar</button>
-          </div>
-        </li>
-        <li>Autoriza con tu cuenta. Esta ventana se cerrará sola al terminar.</li>
-      </ol>
+      <div class="flex items-center gap-3">
+        <button id="btn-link"   class="btn-primary">Vincular</button>
+        <button id="btn-unlink" class="btn-danger">Desvincular</button>
+      </div>
 
-      <div id="oauth-hint" class="text-xs text-[var(--muted)]">Esperando autorización…</div>
+      <p id="link-msg" class="hidden text-xs"></p>
     </div>
   </div>
 

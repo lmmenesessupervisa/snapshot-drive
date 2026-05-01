@@ -23,4 +23,7 @@ async function loadLogs() {
 document.getElementById('refresh').onclick = loadLogs;
 document.getElementById('lines').onchange   = loadLogs;
 loadLogs();
-setInterval(loadLogs, 8000);
+// autoRefresh respeta document.hidden (de app.js): no hace polling cuando
+// la pestaña está en background. setInterval crudo lo hacía siempre,
+// quemando CPU/red al pedo.
+autoRefresh(loadLogs, 8000);

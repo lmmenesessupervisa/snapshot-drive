@@ -751,6 +751,11 @@ main() {
         central)
             local sub="${1:-status}"; shift || true
             local pybin="${SNAPSHOT_ROOT}/.venv/bin/python"
+            # PYTHONPATH explícito: `python -m backend.central.cli` falla con
+            # ModuleNotFoundError cuando snapctl se invoca desde systemd con
+            # cwd=/ (p. ej. snapshot-healthcheck.service). Inyectamos el root
+            # para que el paquete `backend` sea localizable.
+            export PYTHONPATH="${SNAPSHOT_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
             case "$sub" in
                 send)             "$pybin" -m backend.central.cli send "$@" ;;
                 drain|drain-queue) "$pybin" -m backend.central.cli drain ;;
