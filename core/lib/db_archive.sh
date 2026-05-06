@@ -257,7 +257,10 @@ _db_archive_target() {
         local size; size="$(_archive_remote_size "$remote_path")"
         log_info "DB archive OK: ${engine}:${dbname} (${dur}s, ${size}B)"
         if declare -F central_send >/dev/null 2>&1; then
-            ENCRYPTED="${encrypted}" central_send "ok" "db-archive" \
+            # op="db_dump" coincide con backend.central.schema._OP_VALUES.
+            # El nombre del operador "db-archive" sería rechazado con HTTP 400
+            # ("invalid operation.op").
+            ENCRYPTED="${encrypted}" central_send "ok" "db_dump" \
                 "db" "${engine}" "${dbname}" "${_started_at}" "${dur}" \
                 "${size}" "${size}" "1" "${remote_path}" "null" || true
         fi
@@ -266,7 +269,7 @@ _db_archive_target() {
         log_error "DB archive FAIL: ${engine}:${dbname} rc=${rc} (${dur}s)"
         rclone --config "$RCLONE_CONFIG" deletefile "${RCLONE_REMOTE}:${remote_path}" 2>/dev/null || true
         if declare -F central_send >/dev/null 2>&1; then
-            ENCRYPTED="${encrypted}" central_send "fail" "db-archive" \
+            ENCRYPTED="${encrypted}" central_send "fail" "db_dump" \
                 "db" "${engine}" "${dbname}" "${_started_at}" "${dur}" \
                 "0" "0" "0" "${remote_path}" "\"pipe rc=${rc}\"" || true
         fi
