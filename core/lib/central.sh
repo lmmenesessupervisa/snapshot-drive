@@ -125,6 +125,12 @@ central_send() {
   "inventory": ${inventory_json}
 }
 EOF
+    # PYTHONPATH explícito: sin esto, `python -m backend.central.cli`
+    # falla con ModuleNotFoundError cuando central_send se invoca desde
+    # snapctl (cwd suele NO ser SNAPSHOT_ROOT). El error queda silencioso
+    # porque el redirect a /dev/null lo oculta — dimensión típica del
+    # bug "el central no recibe heartbeats aunque local.conf tenga URL+TOKEN".
+    PYTHONPATH="${SNAPSHOT_ROOT:-/opt/snapshot-V3}${PYTHONPATH:+:$PYTHONPATH}" \
     "${PYTHON_BIN:-/opt/snapshot-V3/.venv/bin/python}" \
         -m backend.central.cli send "$tmp" >/dev/null 2>&1
     local rc=$?
