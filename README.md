@@ -151,31 +151,28 @@ reinstalación posterior reaprovecha vinculación OAuth e historial de jobs.
 
 ## Configuración inicial
 
-### 1. Credenciales OAuth (Device Flow)
+### 1. Vincular Drive desde el panel (paste manual de rclone token)
 
-Tras `install.sh`, edita el override local con tus credenciales de Google
-Cloud Console (OAuth Client tipo *TVs and Limited Input devices*):
+El flujo recomendado es pegar el JSON de `rclone authorize "drive"`:
 
-```bash
-sudo nano /etc/snapshot-v3/snapshot.local.conf
-# Rellena GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET
-sudo systemctl restart snapshot-backend
-```
+1. En tu workstation (Windows: `winget install Rclone.Rclone` · Linux/macOS:
+   `curl https://rclone.org/install.sh | sudo bash`).
+2. Corre: `rclone authorize "drive"` — abre Google en tu browser, autorizás
+   con la cuenta corporativa, rclone te imprime el JSON.
+3. Login al panel `http://<host>:5070/`.
+4. **Ajustes → Paso 1** → pegá el JSON en la textarea → **Vincular**.
 
 `snapshot.local.conf` vive **fuera del árbol de código** (`/etc/snapshot-v3/`),
 con permisos `600`, sobreescribe los defaults de `snapshot.conf` al cargarse
 desde `common.sh`, y **sobrevive a upgrades** (`rsync --delete` opera solo
 sobre `/opt/snapshot-V3/`).
 
-### 2. Vincular Drive desde el panel
-
-Abrí `http://127.0.0.1:5070/` (por SSH tunnel si estás remoto) →
-**Vincular Drive** → mostrará un código tipo `ABC-1234` y abrirá la URL de
-verificación de Google. Tras autorizar, el backend hace polling y escribe
-la sección `[gdrive]` en `/var/lib/snapshot-v3/rclone.conf` (0600).
-
-Scope OAuth solicitado: `https://www.googleapis.com/auth/drive.file`
-(rclone solo verá los archivos creados por la propia app).
+> **¿Por qué no Device Flow?** Google rechaza el scope `drive` (full) vía
+> Device Flow — solo permite `drive.file`, que NO sirve cuando un central
+> necesita ver archivos subidos por otros clientes. `rclone authorize`
+> usa OAuth tradicional con redirect callback que sí soporta scope
+> completo. El endpoint `/api/drive/oauth/device/*` sigue existiendo como
+> fallback histórico pero está deprecated en favor del paste manual.
 
 ### 3. Definir taxonomía + paths a respaldar
 
@@ -296,10 +293,12 @@ sudo sqlite3 /var/lib/snapshot-v3/snapshot.db \
 
 ### Sesiones
 
-- TTL **8 horas** con sliding refresh: cada request extiende la sesión
-  si quedan menos de 2h por vencer.
-- **Idle timeout 1 hora**: si no hacés ningún request por más de 60
-  minutos, te toca volver a loguear.
+- Cookie `snapshot_session`: HttpOnly, **SameSite=Lax**, Secure (HTTPS),
+  `max_age=8h` (persistente al cerrar el browser, vive hasta el TTL).
+- TTL absoluto **8 horas** con sliding refresh: cada request extiende
+  la sesión si quedan menos de 2h por vencer.
+- **Idle timeout 8 horas** (`IDLE_TIMEOUT_MINUTES=480`): alineado al TTL
+  absoluto.
 - Logout revoca la sesión inmediatamente (no es solo borrar la cookie
   del browser).
 
@@ -363,19 +362,37 @@ Esto:
 
 ### Enrolar un cliente existente al central
 
-En el host cliente, edita `/etc/snapshot-v3/snapshot.local.conf`:
+Desde el panel del **cliente** (no el central): `Ajustes → Vinculación con
+servidor central`:
 
-```bash
-CENTRAL_URL="https://central.tu-dominio.com"
-CENTRAL_TOKEN="<token plaintext que copiaste del central>"
-```
+1. **Base URL de la API**: `https://central.tu-dominio.com` o
+   `http://10.0.0.5:5070` (marcá "Permitir HTTP en red local" si aplica).
+2. **Token Bearer**: pegá el token plaintext que copiaste del central.
+3. Click **Probar conexión** → debe darte chip emerald `OK · central <ver> · proyecto: <tu-proyecto>`.
+4. Click **Guardar**.
 
-`sudo systemctl restart snapshot-backend` (o reboot). Desde ese momento,
-cada `snapctl archive` (éxito o fallo) emite un heartbeat al central. La
-cola local en `central_queue` retiene los heartbeats hasta confirmar
-entrega — backoff exponencial (1m, 5m, 15m, 1h, 6h, 24h) y máximo 20
-intentos antes de marcarlo `dead`. El healthcheck (cada 15min) drena
-la cola. CLI manual: `sudo snapctl central drain-queue`.
+Internamente: `POST /api/client/central-link` escribe `CENTRAL_URL` y
+`CENTRAL_TOKEN` en `snapshot.local.conf` y refleja en `Config.*` en
+memoria sin restart.
+
+> **CLI alternativo**: editar `/etc/snapshot-v3/snapshot.local.conf`
+> directamente y `sudo systemctl restart snapshot-backend`. Es lo que
+> hace la UI internamente; sigue funcionando.
+
+Desde ese momento, cada `snapctl archive` o `snapctl db-archive` (éxito
+o fallo) emite un heartbeat al central. La cola local en `central_queue`
+retiene los heartbeats hasta confirmar entrega — backoff exponencial
+(1m, 5m, 15m, 1h, 6h, 24h) y máximo 20 intentos antes de marcarlo
+`dead`. El healthcheck (cada 15min) drena la cola. CLI manual:
+`sudo snapctl central drain-queue`.
+
+### Push opcional de inventario en heartbeats
+
+Si activás `CENTRAL_PUSH_INVENTORY=1` en el cliente, cada heartbeat
+adjunta el listado de archivos del subárbol del cliente en Drive. El
+central los upserts en `drive_inventory` y mantiene el `/audit/` cache
+vivo entre refrescos manuales. Default off para no romper instalaciones
+existentes.
 
 ### Gestión de tokens desde la UI
 
@@ -499,11 +516,26 @@ si** `DB_BACKUP_TARGETS` no está vacío al momento del install.
 
 ```bash
 sudo snapctl db-archive                          # ejecuta todos los targets
+sudo snapctl db-archive --engine postgres        # solo un engine
+sudo snapctl db-archive --target postgres:mydb   # solo un target específico
 sudo snapctl db-archive-list                     # lista dumps en Drive
 sudo snapctl db-archive-list --json
+sudo snapctl db-archive-check postgres           # prueba conexión + auth (JSON)
 sudo snapctl db-archive-restore <path>           # dry-run (imprime cmd)
 sudo snapctl db-archive-restore <path> --target mydb  # ejecuta restore
 ```
+
+### UI (Dashboard + Settings + Archivos)
+
+- **Dashboard `/`**: KPI "Último backup BD" (chip emerald < 24h, amber < 48h,
+  rose ≥ 48h) + mini-grid con cada engine configurado.
+- **Botón "Generar backup BD ahora"** disponible en `/`, `/snapshots` y
+  `/settings`. Es smart: 0 engines = disabled con hint, 1 = corre directo,
+  2+ = modal selector con checkbox por engine.
+- **Settings → Backups de bases de datos**: dentro de cada engine card
+  hay 2 botones: "Probar conexión" (corre `pg_isready` / `mysqladmin ping` /
+  `mongosh ping` con timeout 5s y muestra latencia ms o el error) y
+  "Generar dump ahora" (síncrono, solo ese engine).
 
 ### Cifrado
 
@@ -699,16 +731,26 @@ Formato uniforme: `{ "ok": true, "data": { ... }, "error": null }`
 
 ## Frontend
 
-- **Dashboard** (`/`): KPIs (archives totales, último hace cuánto, espacio
-  usado, próximo timer), botón "Generar archivo ahora", jobs recientes.
-  Auto-refresh cada 30s con **visibility-aware pause** (no consume CPU si
-  la pestaña está oculta).
-- **Archivos** (`/snapshots`): tabla mensual de archives con restore/delete.
-- **Ajustes** (`/settings`): taxonomía, password, paths a respaldar,
-  Vincular/Desvincular Drive, selección personal vs Shared Drive.
-- **Logs** (`/logs`): viewer tipo consola con coloreado por nivel.
-- **Auditoría** (`/audit`, opcional): vista agregada multi-host —
-  requiere `AUDIT_ENABLED=1` y que cada host publique su `_status/`.
+- **Dashboard** (`/`): 5 KPIs (archives totales, último archivo, espacio
+  usado, **último backup BD**, próximo timer) + mini-grid de engines DB
+  configurados + acciones rápidas (generar archive, generar backup BD,
+  ver listado, configurar). Auto-refresh con **visibility-aware pause**
+  (no consume CPU si la pestaña está oculta).
+- **Archivos** (`/snapshots`): tabla de archives con restore/delete +
+  botón "Generar backup BD" (mismo selector smart del dashboard).
+- **Ajustes** (`/settings`): taxonomía, cifrado age/openssl, paths a
+  respaldar, Drive (paste manual rclone token), DB targets con "Probar
+  conexión" + "Generar dump" por engine, alertas (solo central),
+  vinculación con central (solo cliente).
+- **Logs** (`/logs`): viewer tipo consola con coloreado por nivel,
+  auto-refresh visibility-aware.
+- **Auditoría** (`/audit`): árbol jerárquico proyecto → región →
+  cliente → backup, **leyendo de DB cache** (`drive_inventory`).
+  El botón "Refrescar" es el único que toca rclone.
+- **Usuarios** (`/users`): CRUD con diálogo de edición (rol, MFA
+  per-user, email, nombre).
+- **Vistas central** (`MODE=central`): `/dashboard-central/clients`,
+  `/dashboard-central/alerts`, `/central/drive`.
 
 Tailwind vía CDN — no requiere build step.
 
@@ -805,10 +847,11 @@ Otros parámetros fijos (no profile-sensitive) en `snapshot.conf`:
 | Servicio   | Puerto | Bind        |
 |------------|--------|-------------|
 | API + UI   | 5070   | 0.0.0.0     |
-| (reservado)| 5071   | (libre)     |
 
-Para acceso remoto: SSH port-forward o reverse proxy con TLS propio. El
-backend no implementa autenticación — se asume red privada o tunelado.
+Para acceso remoto: SSH port-forward o reverse proxy con TLS propio.
+El panel **sí implementa autenticación** (login + MFA + RBAC), pero
+exponer HTTP plano sin TLS hace que la cookie `Secure` no viaje
+correctamente — siempre poné nginx/Caddy delante en producción.
 
 ## Upgrade ante CVE en binarios bundled
 

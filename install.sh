@@ -123,7 +123,7 @@ LOCAL_CONF="$LOCAL_CONF_DIR/snapshot.local.conf"
 install -d -m 0700 "$LOCAL_CONF_DIR"
 if [[ ! -f "$LOCAL_CONF" ]]; then
     install -m 0600 "$INSTALL_ROOT/core/etc/snapshot.local.conf.example" "$LOCAL_CONF"
-    info "Creado $LOCAL_CONF (edítalo con GOOGLE_CLIENT_ID/SECRET)"
+    info "Creado $LOCAL_CONF (vincula Drive vía paste manual de rclone token desde el panel)"
 else
     chmod 600 "$LOCAL_CONF" || true
     info "Override local conservado: $LOCAL_CONF"
@@ -436,16 +436,17 @@ cat <<EOF
 
   SIGUIENTES PASOS:
 
-  1. Edita el override local con las credenciales OAuth:
+  1. Edita el override local si necesitás taxonomía u otros knobs:
        sudo nano $LOCAL_CONF
        sudo systemctl restart snapshot-backend
 
-  2. Abre el panel web (por SSH tunnel si estás remoto) y usa
-     "Vincular Drive" para autorizar vía Device Flow.
+  2. Abre el panel web (por SSH tunnel si estás remoto) → Ajustes →
+     Paso 1 · Vincular cuenta de Google. Pega el JSON producido por
+     'rclone authorize "drive"' en tu workstation. Click "Vincular".
 
   3. Verifica:
        sudo snapctl status
        systemctl list-timers 'snapshot*'
-       sudo snapctl create --tag post-install
+       sudo snapctl archive    # primer archive manual de prueba
 
 EOF

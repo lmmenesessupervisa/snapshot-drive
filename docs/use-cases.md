@@ -12,8 +12,8 @@ para resolverlo y dónde ver/validar el resultado.
 1. `sudo bash install.sh -y` en el host.
 2. Crear admin: `sudo snapctl admin create --email tu@org --role admin`.
 3. Loguear al panel `http://<host>:5070`, completar MFA enrolment.
-4. **Ajustes → Conectar con Google** (Device Flow).
-5. Elegir Shared Drive (recomendado) o Personal.
+4. **Ajustes → Paso 1 · Vincular cuenta de Google**: en tu workstation con browser corre `rclone authorize "drive"`, copia el JSON y pegálo en la textarea → "Vincular".
+5. **Paso 2** — elegir Shared Drive (recomendado) o Personal.
 6. **Ajustes → Backup mensual:** completar proyecto/entorno/país.
 7. **Ajustes → Cifrado age → Generar nuevo keypair** — copiar la
    privada en un gestor externo.
@@ -43,12 +43,15 @@ o reusar uno de los 4 que ya tenés, pero recomendado separar).
 4. En cada VM cliente:
    ```bash
    sudo bash install.sh -y
-   sudo nano /etc/snapshot-v3/snapshot.local.conf
-   # CENTRAL_URL="http://192.168.1.30:5070"
-   # CENTRAL_TOKEN="<el del paso 3 para esta VM>"
-   sudo systemctl restart snapshot-backend
-   sudo snapctl central send-test    # validar
+   sudo snapctl admin create --email admin@vmN --role admin
+   sudo systemctl start snapshot-backend
    ```
+   Después, desde el browser → `http://<vm-ip>:5070/settings → Vinculación con servidor central`:
+   - URL: `http://192.168.1.30:5070` (marcá "Permitir HTTP" si está en LAN).
+   - Token: el del paso 3 para esta VM.
+   - Click **Probar conexión** → esperar chip emerald.
+   - Click **Guardar**.
+   - Forzá un heartbeat real: `sudo snapctl db-archive` (si tenés DB targets) o esperá al timer.
 5. En la UI del central: `Dashboard central` → ves los 4 clientes con
    sus heartbeats.
 

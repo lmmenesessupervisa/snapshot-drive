@@ -107,6 +107,29 @@ flowchart TB
   funcionar aún si el backend está caído. La UI solo lee estado de
   ellos.
 
+## Capa de auditoría (sub-E v2)
+
+```mermaid
+flowchart LR
+    Drive[(shared Drive)] -->|rclone lsjson -R| RefreshBtn["Refrescar (UI)"]
+    RefreshBtn --> ApplyScan[apply_drive_scan<br/>backend.central.inventory]
+    ApplyScan --> Tables[(drive_inventory<br/>drive_inventory_files<br/>drive_scans)]
+
+    Heartbeat["heartbeat con<br/>inventory.leaves[]<br/>(opt-in cliente)"] --> ApplyClient[apply_client_inventory<br/>per-client subárbol]
+    ApplyClient --> Tables
+
+    UI["/audit/<br/>build_tree() / build_local_view()"] -->|read-only| Tables
+```
+
+- **Drive sigue siendo fuente de verdad.** Las tablas son cache reescrita atómicamente por el botón "Refrescar".
+- **Lectura sub-segundo:** cambiar de vista en `/audit/` no toca rclone — solo lee de DB.
+- **Heartbeats con `inventory`** (opt-in con `CENTRAL_PUSH_INVENTORY=1` en cliente) mantienen el cache vivo entre refrescos.
+- **Filename regex flexible**: ancla en timestamp `YYYYMMDD_HHMMSS`. Acepta cualquier prefix (`servidor_`, `postgresql_`, `mysql_`, `mongo_`, ...) y cualquier extensión (`.7z`, `.tar.zst`, `.age`, `.enc`).
+
+## Conexión SQLite con threads
+
+`auth_conn` es un wrapper `ThreadLocalConn` definido en `backend/app.py`: cada thread de gunicorn obtiene su propia `sqlite3.Connection`, todas apuntando al mismo `.db`. SQLite WAL maneja la concurrencia entre conexiones distintas (lectores múltiples + 1 escritor con `busy_timeout=10s`). El patrón viejo de **una sola conexión compartida** rompía con `InterfaceError` cuando múltiples XHRs en paralelo (notable `/settings`) pisaban el state interno del cursor.
+
 ## Decisiones puntuales (con su porqué)
 
 ### Por qué Flask y no FastAPI/Django

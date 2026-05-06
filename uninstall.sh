@@ -75,7 +75,7 @@ if [[ $PURGE -eq 1 ]]; then
          · SQLite del backend (historial de jobs/audit)
          · rclone.conf con el token OAuth de Google Drive
      - $LOG_DIR
-     - $LOCAL_CONF_DIR (snapshot.local.conf con GOOGLE_CLIENT_ID/SECRET)
+     - $LOCAL_CONF_DIR (snapshot.local.conf con SECRET_KEY, CENTRAL_TOKEN, etc.)
 
      Los archivos ya subidos a Google Drive no se tocan — siguen en
      tu cuenta y puedes restaurarlos con rclone/restic más adelante.
@@ -172,7 +172,7 @@ else
     info "Conservados (reinstalar mantiene estos datos intactos):"
     [[ -d "$STATE_DIR"      ]] && info "    $STATE_DIR       (backups restic, SQLite, rclone token)"
     [[ -d "$LOG_DIR"        ]] && info "    $LOG_DIR       (historial JSON)"
-    [[ -d "$LOCAL_CONF_DIR" ]] && info "    $LOCAL_CONF_DIR           (OAuth GOOGLE_CLIENT_ID/SECRET)"
+    [[ -d "$LOCAL_CONF_DIR" ]] && info "    $LOCAL_CONF_DIR           (SECRET_KEY, CENTRAL_TOKEN, taxonomía)"
     info "Para eliminarlos ejecuta: sudo ./uninstall.sh --purge"
 fi
 

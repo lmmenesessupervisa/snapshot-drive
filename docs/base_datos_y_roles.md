@@ -31,6 +31,7 @@ erDiagram
         text password_hash "argon2id"
         text role "admin|operator|auditor"
         text mfa_secret "AES-GCM at rest"
+        int mfa_disabled "v3: bypass MFA per-user"
         text status "active|disabled|locked"
         int failed_attempts
         text locked_until
@@ -119,6 +120,16 @@ erDiagram
 | `central_alerts` | Alertas detectadas. State machine: `triggered → notified → resolved`. |
 | `central_user_perms` | Granularidad extra para usuarios del central (gestión de subusuarios). |
 
+### Tablas Drive inventory cache
+
+Materialización en DB del listado del shared Drive. La UI `/audit/` lee de aquí (sub-segundo) en vez de hacer `rclone lsjson` en vivo. Solo el botón "Refrescar" o un heartbeat con campo `inventory` reescriben estas tablas.
+
+| Tabla | Para qué |
+|---|---|
+| `drive_inventory` | Una fila por leaf `(proyecto, entorno, pais, label, category, subkey)` con count, total_size, encrypted_count, newest_ts, prev_size, shrunk, source (`drive_scan`\|`client_push`). |
+| `drive_inventory_files` | Top-N archivos recientes por leaf (FK + ON DELETE CASCADE). |
+| `drive_scans` | Histórico de scans completos: started_at, finished_at, status (`running`\|`ok`\|`error`), files_total, size_bytes_total, leaves_total, duration_s, triggered_by (`manual`\|`scheduler`\|`startup`). |
+
 ### Tabla cliente (vacía en `MODE=central`)
 
 | Tabla | Para qué |
@@ -140,6 +151,16 @@ Los roles viven en `users.role` y se valida en cada endpoint.
 - **admin** → MFA TOTP **obligatorio**. Si la cuenta no tiene MFA enrolada, el primer login redirige a `/auth/mfa-enroll` antes de permitir cualquier otra acción.
 - **operator / auditor** → MFA opcional pero recomendado. Pueden enrolar desde la cuenta.
 
+### Override per-usuario: `mfa_disabled`
+
+Flag agregado en migración v3. Cuando está en `true`, el login para ese usuario **salta el enroll-required y el challenge TOTP**, aunque su rol sea admin. Útil para:
+
+- Cuentas de servicio sin segundo factor.
+- Clientes en kioskos donde TOTP no aplica.
+- Login de emergencia tras perder el TOTP (alternativa a backup codes).
+
+El flag se setea desde `/users → Editar` (toggle "Desactivar MFA") o vía `POST /auth/users/<uid>` con body `{mfa_disabled: true}`. **Guard**: un admin no puede desactivarse su propio MFA — debe pedirle a otro admin (anti-lockout).
+
 ### Matriz fina del módulo central (`backend/central/permissions.py`)
 
 | Permiso | admin | operator | auditor |
@@ -156,16 +177,14 @@ Los roles viven en `users.role` y se valida en cada endpoint.
 
 ## Sesiones y CSRF
 
-- Cookie `snapshot_session` (HttpOnly, Secure, SameSite=Lax) con un ID
-  random de 256 bits.
-- TTL absoluto: `SESSION_TTL_HOURS` (default 8h).
-- Idle timeout: `IDLE_TIMEOUT_MINUTES` (default 60min). Se refresca en
-  cada request.
-- CSRF: token único por sesión, expuesto en `<meta name="csrf-token">`,
-  exigido en header `X-CSRF-Token` para `POST/PUT/PATCH/DELETE`.
-- Endpoints exentos de CSRF: pre-login (auth.login, reset-request,
-  mfa enroll), endpoints M2M con bearer (`/heartbeat`, `/ping`), y
-  `/audit/api/refresh` (read-only refresh).
+- Cookie `snapshot_session` (HttpOnly, **Secure** en HTTPS, **SameSite=Lax**, **`max_age` = TTL** = 8h) con un ID random de 256 bits.
+- TTL absoluto: `SESSION_TTL_HOURS` (default **8**).
+- Idle timeout: `IDLE_TIMEOUT_MINUTES` (default **480** = 8h, alineado al TTL absoluto). Se refresca en cada request.
+- Sliding refresh: si quedan menos de `SLIDING_THRESHOLD_HOURS` (default 2) para expirar, se renueva por otro full TTL al usar la sesión.
+- CSRF: token único por sesión, expuesto en `<meta name="csrf-token">`, exigido en header `X-CSRF-Token` para `POST/PUT/PATCH/DELETE`.
+- Endpoints exentos de CSRF: pre-login (auth.login, reset-request, mfa enroll), endpoints M2M con bearer (`/api/v1/heartbeat`, `/api/v1/ping`, `/api/v1/auth-check`), y `/audit/api/refresh`.
+
+> **Cambio histórico**: el cookie antes era `SameSite=Strict` sin `max_age` (sesión-only). Causaba "me bota a login al cambiar de módulo" en algunas navegaciones top-level. Migrado a `Lax + max_age` en una iteración previa.
 
 ## Hashing y crypto en DB
 
@@ -192,8 +211,13 @@ Los roles viven en `users.role` y se valida en cada endpoint.
 ## Comandos útiles
 
 ```bash
-# Ver versión actual del schema
+# Ver versión actual del schema (esperado: 3)
 sudo sqlite3 /var/lib/snapshot-v3/snapshot.db 'PRAGMA user_version;'
+
+# Versiones del schema:
+#   v1 - tablas auth iniciales (users, sessions, mfa, audit_auth)
+#   v2 - jobs.actor_user_id (audit del CLI lanzado desde UI)
+#   v3 - users.mfa_disabled (bypass MFA per-user)
 
 # Listar usuarios
 sudo snapctl admin list

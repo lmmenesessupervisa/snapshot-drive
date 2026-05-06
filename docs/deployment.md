@@ -92,17 +92,19 @@ Tras instalar:
 2. Andá a `/dashboard-central/clients` → "Nuevo cliente"
 3. Por cada cliente que vas a recibir, emití un token desde
    `/dashboard-central/clients/<cid>/tokens` → "Emitir token"
-4. **Copiá el token** que se muestra UNA vez. Pegálo en el cliente:
+4. **Copiá el token** que se muestra UNA vez. Configurá el cliente desde su propio panel:
+   - Browser → `http://<cliente-ip>:5070/settings → Vinculación con servidor central`.
+   - Pegá URL del central + token. Marcá "Permitir HTTP en red local" si aplica.
+   - Click "Probar conexión" → debe ser chip emerald.
+   - Click "Guardar".
+5. Forzá un heartbeat real (cualquier backup lo manda):
    ```bash
-   sudo nano /etc/snapshot-v3/snapshot.local.conf
-   # ...
-   CENTRAL_URL="https://<central-ip>:5070"
-   CENTRAL_TOKEN="snap_xxx..."
+   sudo snapctl db-archive   # o snapctl archive
    ```
-5. En el cliente: `sudo systemctl restart snapshot-backend`
-6. Forzá un heartbeat de prueba:
+6. En el central, verificá:
    ```bash
-   sudo snapctl central send-test
+   sudo sqlite3 /var/lib/snapshot-v3/snapshot.db \
+     "SELECT datetime(received_at), op, status FROM central_events ORDER BY id DESC LIMIT 5;"
    ```
 
 ## Probarlo localmente con VMs Ubuntu (sin dominio)
@@ -148,21 +150,20 @@ git clone https://github.com/lmmenesessupervisa/snapshot-drive.git
 cd snapshot-drive
 sudo bash install.sh -y       # SIN --central
 
-sudo nano /etc/snapshot-v3/snapshot.local.conf
-# Setea:
-#   CENTRAL_URL="http://192.168.1.30:5070"
-#   CENTRAL_TOKEN="<el token que emitiste en VM1>"
-#   BACKUP_PROYECTO="superaccess-uno"
-#   BACKUP_ENTORNO="local"
-#   BACKUP_PAIS="colombia"
-
 sudo snapctl admin create --email admin@vm2 --role admin
-sudo systemctl restart snapshot-backend
-
-# Forzar un heartbeat manual:
-sudo snapctl central send-test
-# Esperado: 200 OK del central. En VM1 vas a verlo en /dashboard-central.
+sudo systemctl start snapshot-backend
 ```
+
+Luego desde el browser:
+
+1. `http://192.168.1.31:5070` → login.
+2. **Ajustes** → completá `BACKUP_PROYECTO`, `BACKUP_ENTORNO`, `BACKUP_PAIS` → Guardar.
+3. **Ajustes → Vinculación con servidor central**:
+   - URL: `http://192.168.1.30:5070` + marcar "Permitir HTTP en red local".
+   - Token: el de VM1 paso 3.
+   - **Probar conexión** → chip emerald.
+   - **Guardar**.
+4. Forzá un heartbeat real (`sudo snapctl db-archive` o `archive`). En VM1 lo verás en `/dashboard-central/clients/<id>` con un evento nuevo.
 
 Repetí para VM3 con otro cliente y otro token. En VM1 vas a ver los 2
 clientes con sus heartbeats.
@@ -232,16 +233,50 @@ CENTRAL_URL="https://backups.miorg.com"   # SIN trailing slash
 
 ## Upgrade
 
+### Opción A — Re-install completo (recomendado para upgrade mayor)
+
 ```bash
 cd /path/to/snapshot-drive
 git pull origin main
 sudo bash install.sh -y
 # install.sh hace rsync --delete a /opt/snapshot-V3 — preserva
-# /etc/snapshot-v3 y /var/lib/snapshot-v3.
+# /etc/snapshot-v3 y /var/lib/snapshot-v3. Reinicia el servicio al final.
 ```
 
-Tras el upgrade el backend se reinicia solo. Las migraciones de SQLite
-corren al startup (idempotentes, comparan `PRAGMA user_version`).
+### Opción B — Hot-deploy de cambios pequeños
+
+Para iteraciones rápidas (típicamente templates / JS / fixes pequeños) sin re-bootstrap del bundle:
+
+```bash
+cd /path/to/snapshot-drive
+git pull --ff-only
+
+# Sync solo lo que cambió (NO toca .venv, bundle, logs, /etc, /var/lib)
+rsync -a --exclude '__pycache__' backend/ /opt/snapshot-V3/backend/
+rsync -a --delete --exclude '.venv' --exclude 'logs/*' --exclude '__pycache__' \
+    --exclude 'bundle' frontend/ /opt/snapshot-V3/frontend/
+rsync -a core/ /opt/snapshot-V3/core/
+
+sudo systemctl restart snapshot-backend.service
+```
+
+### Verificar que el upgrade aplicó
+
+```bash
+# Schema migrations (esperado: igual al CURRENT_VERSION del repo)
+sudo sqlite3 /var/lib/snapshot-v3/snapshot.db 'PRAGMA user_version;'
+
+# Service activo, sin errores recientes
+systemctl is-active snapshot-backend.service
+sudo journalctl -u snapshot-backend.service --since "1 minute ago" --no-pager | grep -iE "error|traceback"
+# (vacío = OK)
+
+# Smoke HTTP
+curl -s -o /dev/null -w "GET / → %{http_code}\n" http://127.0.0.1:5070/
+# (esperado: 302 → /auth/login si no estás logueado)
+```
+
+Tras el upgrade el backend se reinicia solo (Opción A) o por sistemctl (Opción B). Las migraciones de SQLite corren al startup (idempotentes, comparan `PRAGMA user_version`).
 
 ## Backup del propio sistema
 

@@ -20,9 +20,15 @@ ambos y aplica el local sobre el global.
 ### Identidad de la instalación
 
 ```bash
-# OAuth Client del Device Flow (creado en GCP Console).
+# OAuth Client de Google. SOLO se usa si vinculás Drive vía Device Flow
+# (legacy /api/drive/oauth/device/*). El flujo recomendado es "manual
+# rclone token" — pegás el JSON de `rclone authorize "drive"` directo
+# en el panel y NO necesitás GOOGLE_CLIENT_ID/SECRET. Device Flow tiene
+# limitación: Google no permite el scope `drive` (full) por esta vía,
+# solo `drive.file`, lo cual restringe lo que el central puede ver.
 GOOGLE_CLIENT_ID=""
 GOOGLE_CLIENT_SECRET=""
+GOOGLE_OAUTH_SCOPE=""    # opcional, default https://www.googleapis.com/auth/drive
 
 # Master key para encriptar MFA secrets + derivar Flask SECRET_KEY (HKDF).
 # 64 hex chars. Si vacía, install.sh la genera.
@@ -35,10 +41,20 @@ SECRET_KEY=""
 # Default: client. Pasá a "central" para activar el receptor de heartbeats.
 MODE="client"
 
-# Solo si MODE=client: dónde mandar heartbeats.
+# Solo si MODE=client: dónde mandar heartbeats. AHORA editable también
+# desde la UI: /settings → "Vinculación con servidor central".
 CENTRAL_URL="https://central.miorg.local"
 CENTRAL_TOKEN="<bearer token emitido por el central>"
 CENTRAL_TIMEOUT_S="5"
+
+# Opt-in: cuando un cliente termina un backup, ADEMÁS del heartbeat
+# básico envía su inventario de Drive embebido (subárbol de su propio
+# proyecto/entorno/pais). El central los upserts en drive_inventory,
+# manteniendo /audit/ vivo entre refrescos manuales sin tener que
+# volver a escanear todo el Drive.
+# Default: 0 (off — no rompe instalaciones existentes).
+# Cap: 64 leaves, 200 files por heartbeat (caps duros del schema).
+CENTRAL_PUSH_INVENTORY="0"
 ```
 
 ### Backup mensual / archive
@@ -111,10 +127,15 @@ NOTIFY_WEBHOOK=""
 ### Vista de auditoría agregada
 
 ```bash
-# Solo activala en la instalación ops (NO en hosts de cliente).
+# Activala tanto en central (vista del fleet) como en cliente (vista
+# "Mis backups" del propio host).
 SNAPSHOT_AUDIT_VIEWER="1"
-# Carpeta raíz del shared Drive con subfolders por host.
-AUDIT_REMOTE_PATH="snapshots"
+
+# Subcarpeta del shared Drive a auditar. Vacío o "/" = raíz del Drive
+# (lo que aplica si los clientes suben directo a proyecto/entorno/pais
+# en la raíz). Si los archivos viven dentro de una subcarpeta tipo
+# "snapshots", poné el nombre acá.
+AUDIT_REMOTE_PATH=""
 ```
 
 > Nota: `AUDIT_PASSWORD` ya **no existe** — `/audit` ahora usa el login
@@ -177,10 +198,13 @@ Tienen precedencia sobre `local.conf`. Útil para CI/tests.
 | `ARCHIVE_PASSWORD` o `ARCHIVE_AGE_RECIPIENTS` | **No** — bash crypto helper relee |
 | `DB_BACKUP_TARGETS` y creds DB | **No** |
 | `MODE` (cliente↔central) | **Sí** — los blueprints se registran al startup |
-| `ALERTS_*` | **No** — el set_alerts_config también actualiza `Config.*` en memoria |
+| `ALERTS_*` | **No** — `set_alerts_config` también actualiza `Config.*` en memoria |
+| `CENTRAL_URL` / `CENTRAL_TOKEN` (vía UI o local.conf) | **No** — `set_client_central_link` actualiza `Config.*` en memoria |
+| `AUDIT_REMOTE_PATH`, `SNAPSHOT_AUDIT_VIEWER` | **No** — `set_central_config` actualiza `Config.*` en memoria |
 | `SECRET_KEY` master | **Sí** — se deriva la Flask session key al startup |
 | `BACKUP_PATHS` (paths a respaldar) | **No** — leído fresh por `snapctl create` |
 | `SMTP_*`, `NOTIFY_*` | **Sí** para los del backend; **No** para los del CLI |
+| `CENTRAL_PUSH_INVENTORY` | **No** — `central.sh` lo lee fresh en cada heartbeat |
 
 ## Healthcheck
 
