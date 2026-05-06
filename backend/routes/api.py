@@ -21,9 +21,10 @@ from ..services.drive_oauth import (
 )
 from ..services.snapctl import SnapctlError
 from ..services import sysconfig
-from ..services import archive_config, archive_ops
+from ..services import archive_config, archive_ops, db_archive_ops
 from ..services.archive_config import ArchiveConfigError
 from ..services.archive_ops import ArchiveOpError
+from ..services.db_archive_ops import DbArchiveOpError
 
 log = logging.getLogger("api")
 api_bp = Blueprint("api", __name__, url_prefix="/api")
@@ -304,6 +305,55 @@ def db_archive_config_set():
         _db().audit("api", "db-archive-config", f"targets={res['targets']!r}")
         return _ok(res)
     except ArchiveConfigError as e:
+        return _err(str(e), 400)
+
+
+@api_bp.get("/db-archive/summary")
+@require_login
+def db_archive_summary():
+    try:
+        return _ok(db_archive_ops.summary())
+    except DbArchiveOpError as e:
+        return _err(str(e), 500)
+
+
+@api_bp.post("/db-archive/create")
+@require_any_role("admin", "operator")
+def db_archive_create():
+    payload = request.get_json(silent=True) or {}
+    engines = payload.get("engines") or None
+    targets = payload.get("targets") or None
+    if engines is not None and not isinstance(engines, list):
+        return _err("engines debe ser lista", 400)
+    if targets is not None and not isinstance(targets, list):
+        return _err("targets debe ser lista", 400)
+    try:
+        res = db_archive_ops.create(engines=engines, targets=targets)
+        _db().audit(
+            "api", "db-archive-create",
+            f"engines={engines or 'all'} ok={res['ok_count']} fail={res['fail_count']}",
+        )
+        return _ok(res)
+    except DbArchiveOpError as e:
+        return _err(str(e), 500)
+
+
+@api_bp.post("/db-archive/check-connection")
+@require_role("admin")
+def db_archive_check():
+    payload = request.get_json(silent=True) or {}
+    engine = (payload.get("engine") or "").strip()
+    if not engine:
+        return _err("engine requerido", 400)
+    password = payload.get("password")
+    if password is not None and not isinstance(password, str):
+        return _err("password debe ser string", 400)
+    try:
+        res = db_archive_ops.check_connection(
+            engine, password=password if password else None,
+        )
+        return _ok(res)
+    except DbArchiveOpError as e:
         return _err(str(e), 400)
 
 

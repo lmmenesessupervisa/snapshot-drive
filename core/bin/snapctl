@@ -128,9 +128,10 @@ Comandos de Drive:
   drive-target personal|shared <id>    Cambia destino
 
 DB BACKUPS:
-  db-archive                          Dump configurado en DB_BACKUP_TARGETS y sube a Drive
+  db-archive [--engine NAME]          Dump configurado (filtrable por engine) y sube a Drive
   db-archive-list [--json]            Lista los dumps en Drive
   db-archive-restore <path> --target  Restaura dump (decompress + pipe a engine)
+  db-archive-check <engine>           Prueba conexión al engine (postgres|mysql|mongo) — JSON
 
 CRYPTO:
   crypto-keygen                       Genera keypair age (pub + priv una sola vez)
@@ -743,6 +744,7 @@ main() {
         db-archive)         cmd_db_archive         "$@" ;;
         db-archive-list)    cmd_db_archive_list    "$@" ;;
         db-archive-restore) cmd_db_archive_restore "$@" ;;
+        db-archive-check)   cmd_db_archive_check   "$@" ;;
         crypto-keygen)      cmd_crypto_keygen      "$@" ;;
         admin)
             exec "${SNAPSHOT_ROOT}/.venv/bin/python" \

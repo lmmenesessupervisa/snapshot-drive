@@ -4,7 +4,7 @@
 
 {% block content %}
 <!-- KPIs -->
-<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
   <div class="card card-hover kpi p-5">
     <div class="kpi-icon">
       <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
@@ -28,6 +28,15 @@
     <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Espacio ocupado</div>
     <div class="mt-2 text-3xl font-semibold" id="kpi-size">—</div>
     <div class="text-xs text-[var(--muted-2)] mt-1">suma de todos los archivos</div>
+  </div>
+  <!-- KPI Último backup BD -->
+  <div class="card card-hover kpi p-5">
+    <div class="kpi-icon">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/></svg>
+    </div>
+    <div class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Último backup BD</div>
+    <div class="mt-2 text-3xl font-semibold" id="kpi-db-ago">—</div>
+    <div class="text-xs text-[var(--muted-2)] mt-1" id="kpi-db-sub">sin engines configurados</div>
   </div>
   <div class="card card-hover kpi p-5">
     <div class="kpi-icon">
@@ -66,7 +75,10 @@
     </h2>
     <div class="space-y-3 text-sm">
       <button id="btn-create" class="btn-primary w-full justify-center">
-        Generar archivo ahora
+        Generar archivo mensual ahora
+      </button>
+      <button id="btn-db-create" class="btn-primary w-full justify-center" disabled>
+        Generar backup BD ahora
       </button>
       <a href="/snapshots" class="btn-secondary w-full justify-center">
         Ver listado de archivos
@@ -81,6 +93,32 @@
     </div>
   </div>
 </div>
+
+<!-- Mini-grid de engines DB activos -->
+<div class="mt-8 card p-6 hidden" id="db-engines-card">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="font-semibold tracking-tight flex items-center gap-2">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/></svg>
+      Backups de bases de datos
+    </h2>
+    <a href="/settings" class="text-xs text-brand-500 hover:underline">configurar →</a>
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm" id="db-engines-grid"></div>
+</div>
+
+<!-- Modal: selector de engines para "Generar BD ahora" cuando hay 2+ -->
+<dialog id="dlg-db-pick" class="rounded-lg p-0 bg-transparent">
+  <form id="form-db-pick" class="card p-6 space-y-3 min-w-[22rem]">
+    <h2 class="text-lg font-semibold">Generar backup BD ahora</h2>
+    <p class="text-xs text-[var(--muted)]">Selecciona qué engines respaldar:</p>
+    <div id="db-pick-options" class="space-y-2"></div>
+    <div class="flex justify-end gap-2 pt-2">
+      <button type="button" id="db-pick-cancel" class="btn-secondary">Cancelar</button>
+      <button type="submit" class="btn-primary">Generar</button>
+    </div>
+  </form>
+</dialog>
+
 {% endblock %}
 
 {% block scripts %}

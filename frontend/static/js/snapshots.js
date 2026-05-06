@@ -154,4 +154,64 @@ $("arch-body").addEventListener("click", (ev) => {
 
 $("btn-refresh").onclick = load;
 
+// ============================================================
+// DB backup: smart button (mismo patrón que dashboard.js)
+// ============================================================
+const ENGINE_LABEL_S = { postgres: "PostgreSQL", mysql: "MySQL/MariaDB", mongo: "MongoDB" };
+const ENGINE_CHIP_S  = { postgres: "chip-sky", mysql: "chip-amber", mongo: "chip-emerald" };
+let DB_ENGINES = [];
+
+async function loadDbEngines() {
+  try {
+    const s = await API.get("/db-archive/summary");
+    DB_ENGINES = s.configured_engines || [];
+    const btn = $("btn-db-create");
+    if (DB_ENGINES.length === 0) {
+      btn.disabled = true;
+      btn.title = "Configura un engine en Ajustes → Backups de bases de datos";
+    } else {
+      btn.disabled = false;
+      btn.title = DB_ENGINES.length === 1
+        ? `Genera backup de ${ENGINE_LABEL_S[DB_ENGINES[0]] || DB_ENGINES[0]}`
+        : `Selecciona qué engines (${DB_ENGINES.length} configurados)`;
+    }
+  } catch { /* ignore */ }
+}
+
+async function runDbBackup(engines) {
+  if (!engines.length) return;
+  if (!confirm(`Se va a generar dump${engines.length>1?'s':''} para: ${engines.join(", ")}. ¿Continuar?`)) return;
+  const end = busyStart("Generando backup BD…");
+  try {
+    const res = await API.post("/db-archive/create", { engines });
+    toast(`DB backup: ${res.ok_count} ok, ${res.fail_count} fail (${res.duration_s}s)`,
+          res.fail_count === 0 ? "success" : "warn");
+  } catch (e) {
+    toast(`Error: ${e.message}`, "error");
+  } finally { end(); }
+}
+
+$("btn-db-create").onclick = () => {
+  if (DB_ENGINES.length === 0) return;
+  if (DB_ENGINES.length === 1) { runDbBackup([DB_ENGINES[0]]); return; }
+  const opts = $("db-pick-options");
+  opts.innerHTML = DB_ENGINES.map((e) => `
+    <label class="flex items-center gap-2 cursor-pointer">
+      <input type="checkbox" name="engine" value="${e}" checked class="accent-[var(--primary)]">
+      <span class="chip ${ENGINE_CHIP_S[e] || 'chip-slate'}">${e}</span>
+      <span class="text-xs text-[var(--muted)]">${ENGINE_LABEL_S[e] || e}</span>
+    </label>
+  `).join("");
+  $("dlg-db-pick").showModal();
+};
+$("db-pick-cancel").onclick = () => $("dlg-db-pick").close();
+$("form-db-pick").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const picked = Array.from(e.target.querySelectorAll('input[name="engine"]:checked'))
+    .map(i => i.value);
+  $("dlg-db-pick").close();
+  if (picked.length) runDbBackup(picked);
+});
+
 load();
+loadDbEngines();

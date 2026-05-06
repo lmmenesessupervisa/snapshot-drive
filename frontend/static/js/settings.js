@@ -560,6 +560,67 @@ if ($('btn-save-alerts')) {
   };
 }
 
+// ============================================================
+// DB action buttons (Probar conexión + Generar dump por engine)
+// Delegado en document para que sirva incluso cuando los engine-fields
+// se reveal/hide con la checkbox de activación.
+// ============================================================
+function _setDbTestResult(engine, kind, msg) {
+  const el = document.querySelector(`[data-db-test-result="${engine}"]`);
+  if (!el) return;
+  el.classList.remove("hidden", "chip", "chip-emerald", "chip-rose", "chip-slate");
+  el.classList.add("chip");
+  if (kind === "ok") el.classList.add("chip-emerald");
+  else if (kind === "fail") el.classList.add("chip-rose");
+  else el.classList.add("chip-slate");
+  el.textContent = msg;
+}
+
+document.addEventListener("click", async (e) => {
+  const test = e.target.closest("[data-db-test]");
+  const run  = e.target.closest("[data-db-run]");
+
+  if (test) {
+    const engine = test.dataset.dbTest;
+    _setDbTestResult(engine, "info", "probando…");
+    test.disabled = true;
+    try {
+      // Si el operador escribió un password nuevo en el form, lo
+      // mandamos para validar antes de guardarlo.
+      const pwdInput = document.getElementById(`db-${engine === "mongo" ? "mongo-uri" : engine === "postgres" ? "pg-pwd" : "mysql-pwd"}`);
+      const body = { engine };
+      if (pwdInput && pwdInput.value && engine !== "mongo") body.password = pwdInput.value;
+      const r = await API.post("/db-archive/check-connection", body);
+      if (r && r.ok) {
+        _setDbTestResult(engine, "ok",
+          `OK${r.latency_ms != null ? ` · ${r.latency_ms}ms` : ""}`);
+      } else {
+        _setDbTestResult(engine, "fail",
+          (r && r.error ? r.error : "fallo desconocido").slice(0, 80));
+      }
+    } catch (err) {
+      _setDbTestResult(engine, "fail", String(err.message || err).slice(0, 80));
+    } finally { test.disabled = false; }
+    return;
+  }
+
+  if (run) {
+    const engine = run.dataset.dbRun;
+    if (!confirm(`Generar dump de ${engine.toUpperCase()} ahora? Puede tardar.`)) return;
+    run.disabled = true;
+    try {
+      const res = await API.post("/db-archive/create", { engines: [engine] });
+      toast(
+        `${engine}: ${res.ok_count} ok, ${res.fail_count} fail (${res.duration_s}s)`,
+        res.fail_count === 0 ? "success" : "warn",
+      );
+    } catch (err) {
+      toast(`Error: ${err.message}`, "error");
+    } finally { run.disabled = false; }
+    return;
+  }
+});
+
 // --- boot ---
 loadStatus();
 loadConfig();

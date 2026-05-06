@@ -394,6 +394,11 @@
           <label class="inline-flex items-center gap-2 text-xs text-[var(--muted)]">
             <input id="db-pg-pwd-clear" type="checkbox"> Borrar password guardada
           </label>
+          <div class="flex items-center gap-2 pt-3 border-t border-[var(--border)]">
+            <button type="button" data-db-test="postgres" class="btn-secondary text-xs">Probar conexión</button>
+            <button type="button" data-db-run="postgres" class="btn-secondary text-xs">Generar dump ahora</button>
+            <span data-db-test-result="postgres" class="hidden text-xs ml-auto"></span>
+          </div>
         </div>
       </div>
 
@@ -434,6 +439,11 @@
           <label class="inline-flex items-center gap-2 text-xs text-[var(--muted)]">
             <input id="db-mysql-pwd-clear" type="checkbox"> Borrar password guardada
           </label>
+          <div class="flex items-center gap-2 pt-3 border-t border-[var(--border)]">
+            <button type="button" data-db-test="mysql" class="btn-secondary text-xs">Probar conexión</button>
+            <button type="button" data-db-run="mysql" class="btn-secondary text-xs">Generar dump ahora</button>
+            <span data-db-test-result="mysql" class="hidden text-xs ml-auto"></span>
+          </div>
         </div>
       </div>
 
@@ -463,6 +473,11 @@
           <label class="inline-flex items-center gap-2 text-xs text-[var(--muted)]">
             <input id="db-mongo-uri-clear" type="checkbox"> Borrar URI guardada
           </label>
+          <div class="flex items-center gap-2 pt-3 border-t border-[var(--border)]">
+            <button type="button" data-db-test="mongo" class="btn-secondary text-xs">Probar conexión</button>
+            <button type="button" data-db-run="mongo" class="btn-secondary text-xs">Generar dump ahora</button>
+            <span data-db-test-result="mongo" class="hidden text-xs ml-auto"></span>
+          </div>
         </div>
       </div>
 

@@ -90,7 +90,32 @@ cmd_db_archive() {
 
     [[ -n "${DB_BACKUP_TARGETS:-}" ]] || die "DB_BACKUP_TARGETS vacío en snapshot.local.conf"
 
-    local fail_count=0 ok_count=0
+    # Filtros opcionales: --engine NAME (repetible) y --target ENGINE:DBNAME
+    # (repetible). Sin filtros corre todos los targets configurados.
+    local -a only_engines=()
+    local -a only_targets=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --engine) only_engines+=("$2"); shift 2 ;;
+            --target) only_targets+=("$2"); shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    _engine_allowed() {
+        [[ ${#only_engines[@]} -eq 0 ]] && return 0
+        local e="$1"
+        for x in "${only_engines[@]}"; do [[ "$x" == "$e" ]] && return 0; done
+        return 1
+    }
+    _target_allowed() {
+        [[ ${#only_targets[@]} -eq 0 ]] && return 0
+        local t="$1"
+        for x in "${only_targets[@]}"; do [[ "$x" == "$t" ]] && return 0; done
+        return 1
+    }
+
+    local fail_count=0 ok_count=0 skipped=0
     for tok in $DB_BACKUP_TARGETS; do
         [[ "$tok" == *:* ]] || { log_warn "target malformado: $tok"; fail_count=$((fail_count+1)); continue; }
         local engine="${tok%%:*}"
@@ -100,6 +125,9 @@ cmd_db_archive() {
         fi
         if [[ -z "$dbname" || "$dbname" == *[!A-Za-z0-9._-]* ]]; then
             log_warn "dbname inválido: $dbname"; fail_count=$((fail_count+1)); continue
+        fi
+        if ! _engine_allowed "$engine" || ! _target_allowed "$tok"; then
+            skipped=$((skipped+1)); continue
         fi
         if ! _db_engine_available "$engine"; then
             log_warn "engine $engine: tool ausente, target $tok salteado"
@@ -112,8 +140,93 @@ cmd_db_archive() {
         fi
     done
 
-    log_info "DB archive: ${ok_count} ok, ${fail_count} fail"
+    log_info "DB archive: ${ok_count} ok, ${fail_count} fail${skipped:+, ${skipped} skipped}"
     [[ $fail_count -eq 0 ]] || return 1
+}
+
+
+# ----------------------- check connection -----------------------
+# Prueba conexión + autenticación a un engine, sin hacer dump.
+# Devuelve JSON: {ok: bool, engine, latency_ms?, error?}.
+# Usa las credenciales de local.conf, salvo que se pase --password VAL
+# (caso "valida antes de guardar" desde la UI).
+cmd_db_archive_check() {
+    local engine="${1:-}"
+    shift || true
+    [[ -n "$engine" ]] || { echo '{"ok":false,"error":"engine requerido"}'; return 2; }
+    local password_override=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --password) password_override="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ ! "$engine" =~ $_DB_ENGINES_RE ]]; then
+        echo "{\"ok\":false,\"engine\":\"${engine}\",\"error\":\"engine no soportado\"}"
+        return 2
+    fi
+    if ! _db_engine_available "$engine"; then
+        echo "{\"ok\":false,\"engine\":\"${engine}\",\"error\":\"herramienta del engine ausente en este host\"}"
+        return 2
+    fi
+
+    local t_start_ms; t_start_ms="$(date +%s%3N)"
+    local err_msg="" rc=0
+    case "$engine" in
+        postgres)
+            local pwd="${password_override:-${DB_PG_PASSWORD:-}}"
+            command -v psql >/dev/null 2>&1 || {
+                echo "{\"ok\":false,\"engine\":\"postgres\",\"error\":\"psql ausente\"}"
+                return 2
+            }
+            local pg_args=()
+            [[ -n "${DB_PG_HOST:-}" ]] && pg_args+=(-h "$DB_PG_HOST")
+            [[ -n "${DB_PG_PORT:-}" ]] && pg_args+=(-p "$DB_PG_PORT")
+            [[ -n "${DB_PG_USER:-}" ]] && pg_args+=(-U "$DB_PG_USER")
+            err_msg="$(PGPASSWORD="$pwd" psql -tAq "${pg_args[@]}" -d postgres -c "SELECT 1" 2>&1 >/dev/null)"
+            rc=$?
+            ;;
+        mysql)
+            local pwd="${password_override:-${DB_MYSQL_PASSWORD:-}}"
+            command -v mysqladmin >/dev/null 2>&1 || {
+                echo "{\"ok\":false,\"engine\":\"mysql\",\"error\":\"mysqladmin ausente\"}"
+                return 2
+            }
+            local my_args=(--connect-timeout=5)
+            [[ -n "${DB_MYSQL_HOST:-}" ]] && my_args+=("-h$DB_MYSQL_HOST")
+            [[ -n "${DB_MYSQL_PORT:-}" ]] && my_args+=("-P$DB_MYSQL_PORT")
+            [[ -n "${DB_MYSQL_USER:-}" ]] && my_args+=("-u$DB_MYSQL_USER")
+            err_msg="$(MYSQL_PWD="$pwd" mysqladmin "${my_args[@]}" ping 2>&1 >/dev/null)"
+            rc=$?
+            ;;
+        mongo)
+            local uri="${DB_MONGO_URI:-}"
+            [[ -n "$password_override" ]] && uri="${uri/${DB_MONGO_PASSWORD:-__placeholder__}/$password_override}"
+            [[ -n "$uri" ]] || {
+                echo "{\"ok\":false,\"engine\":\"mongo\",\"error\":\"DB_MONGO_URI vacío\"}"
+                return 2
+            }
+            local mongo_bin
+            mongo_bin="$(command -v mongosh || command -v mongo)" || {
+                echo "{\"ok\":false,\"engine\":\"mongo\",\"error\":\"mongosh/mongo ausente\"}"
+                return 2
+            }
+            err_msg="$("$mongo_bin" --quiet "$uri" --eval 'db.runCommand({ping:1})' 2>&1 >/dev/null)"
+            rc=$?
+            ;;
+    esac
+    local t_end_ms; t_end_ms="$(date +%s%3N)"
+    local lat=$((t_end_ms - t_start_ms))
+    if [[ $rc -eq 0 ]]; then
+        echo "{\"ok\":true,\"engine\":\"${engine}\",\"latency_ms\":${lat}}"
+        return 0
+    fi
+    # Sanitiza el error para JSON: una línea, sin comillas dobles, ≤ 300 chars
+    local clean
+    clean="$(printf '%s' "$err_msg" | tr '\n' ' ' | sed 's/"/\\"/g' | cut -c1-300)"
+    echo "{\"ok\":false,\"engine\":\"${engine}\",\"latency_ms\":${lat},\"error\":\"${clean}\"}"
+    return 1
 }
 
 _db_archive_target() {
