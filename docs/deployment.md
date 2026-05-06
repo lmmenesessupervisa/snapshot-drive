@@ -231,52 +231,154 @@ Para cliente apuntando a central detrás de nginx:
 CENTRAL_URL="https://backups.miorg.com"   # SIN trailing slash
 ```
 
-## Upgrade
+## Upgrade · bajar cambios y aplicarlos
 
-### Opción A — Re-install completo (recomendado para upgrade mayor)
+> **Aplica IGUAL en `MODE=client` y `MODE=central`.** El procedimiento es el mismo; lo único que cambia es cuáles blueprints se registran al startup según `MODE` en `snapshot.local.conf` (no requiere intervención manual).
 
-```bash
-cd /path/to/snapshot-drive
-git pull origin main
-sudo bash install.sh -y
-# install.sh hace rsync --delete a /opt/snapshot-V3 — preserva
-# /etc/snapshot-v3 y /var/lib/snapshot-v3. Reinicia el servicio al final.
+### Modelo del deploy
+
+```
+~/snapshot-drive/                       /opt/snapshot-V3/
+  └─ git checkout (tu working tree)  →  └─ tree que sirve gunicorn
+                                            (rsync --delete fuera de
+                                             .venv, bundle, logs)
+
+/etc/snapshot-v3/snapshot.local.conf    /var/lib/snapshot-v3/
+  └─ secrets, taxonomía, MODE,             └─ snapshot.db (sqlite WAL)
+     CENTRAL_URL/TOKEN, etc.                  rclone.conf
+  ↑↑↑ NUNCA se tocan en el upgrade ↑↑↑
 ```
 
-### Opción B — Hot-deploy de cambios pequeños
+Resumen: el código vive en `/opt/snapshot-V3/`, pero la config y los datos viven aparte y sobreviven re-deploys. Por eso un upgrade nunca pierde tu vinculación con Drive ni la DB del panel.
 
-Para iteraciones rápidas (típicamente templates / JS / fixes pequeños) sin re-bootstrap del bundle:
+### Opción A — Re-install completo (recomendado tras `git pull` con cambios mayores)
+
+Usá esta cuando: cambia `requirements.txt`, se actualiza Python o algún binario del bundle, o simplemente querés el procedimiento canónico.
 
 ```bash
-cd /path/to/snapshot-drive
-git pull --ff-only
+# 1. Bajar los cambios
+cd ~/snapshot-drive
+git pull --ff-only origin main
 
-# Sync solo lo que cambió (NO toca .venv, bundle, logs, /etc, /var/lib)
+# 2. Re-instalar (idempotente, ~30-60s sin cambios; minutos si reconstruye venv)
+sudo bash install.sh -y
+
+# install.sh hace internamente:
+#   - rsync --delete del repo → /opt/snapshot-V3/
+#   - re-resuelve requirements.txt en .venv si cambió
+#   - re-emplaza unidades systemd y drop-ins
+#   - reinicia snapshot-backend.service al final
+```
+
+### Opción B — Hot-deploy de cambios chicos (templates, JS, fixes Python)
+
+Usá esta cuando solo cambian archivos bajo `backend/`, `frontend/` o `core/` (mayoría de los commits de iteración rápida). Es ~5-10x más rápido porque no toca el venv ni el bundle.
+
+```bash
+# 1. Bajar los cambios
+cd ~/snapshot-drive
+git pull --ff-only origin main
+
+# 2. Sincronizar al deploy (sin tocar .venv, bundle, logs, /etc, /var/lib)
 rsync -a --exclude '__pycache__' backend/ /opt/snapshot-V3/backend/
-rsync -a --delete --exclude '.venv' --exclude 'logs/*' --exclude '__pycache__' \
-    --exclude 'bundle' frontend/ /opt/snapshot-V3/frontend/
+rsync -a --delete --exclude '.venv' --exclude 'logs/*' \
+    --exclude '__pycache__' --exclude 'bundle' \
+    frontend/ /opt/snapshot-V3/frontend/
 rsync -a core/ /opt/snapshot-V3/core/
 
+# 3. Reiniciar el backend (necesario para que Python recargue módulos)
 sudo systemctl restart snapshot-backend.service
 ```
 
-### Verificar que el upgrade aplicó
+> **¿Cuándo NO sirve hot-deploy?** Si el commit cambia `requirements.txt` (instala/quita libs Python) o `install.sh` (lógica del instalador). Para esos casos andá a Opción A.
+
+### ¿Qué hace cada `rsync` exactamente?
+
+| Comando | Qué sincroniza | Qué preserva |
+|---|---|---|
+| `rsync -a backend/ → /opt/.../backend/` | Código Python (Flask, services, central, auth, models) | `.venv/` (excluido), `__pycache__` (excluido) |
+| `rsync -a --delete frontend/ → /opt/.../frontend/` | Templates Jinja2, JS, CSS estático | `--delete` borra archivos en destino que ya no están en origen (importante para JS huérfanos) |
+| `rsync -a core/ → /opt/.../core/` | Bash CLI (`snapctl`), libs (`*.sh`), `etc/` (config base, NO local.conf) | `/etc/snapshot-v3/` no se toca (vive afuera de `/opt/snapshot-V3/`) |
+
+### Verificar que el upgrade aplicó (mismos checks en cliente y central)
 
 ```bash
-# Schema migrations (esperado: igual al CURRENT_VERSION del repo)
+# 1. Schema migrations corrieron al startup
 sudo sqlite3 /var/lib/snapshot-v3/snapshot.db 'PRAGMA user_version;'
+# (debe ser igual al CURRENT_VERSION del repo; hoy: 3)
 
-# Service activo, sin errores recientes
+# 2. Servicio activo, sin errores recientes
 systemctl is-active snapshot-backend.service
-sudo journalctl -u snapshot-backend.service --since "1 minute ago" --no-pager | grep -iE "error|traceback"
+sudo journalctl -u snapshot-backend.service --since "1 minute ago" --no-pager \
+    | grep -iE "error|traceback|InterfaceError"
 # (vacío = OK)
 
-# Smoke HTTP
+# 3. Smoke HTTP — debería redirigir a login
 curl -s -o /dev/null -w "GET / → %{http_code}\n" http://127.0.0.1:5070/
-# (esperado: 302 → /auth/login si no estás logueado)
+# (esperado: 302)
+
+# 4. Confirmar MODE efectivo (sanity check del deploy)
+sudo /opt/snapshot-V3/.venv/bin/python -c "
+import sys; sys.path.insert(0, '/opt/snapshot-V3')
+from backend.config import Config
+print('MODE:', Config.MODE)
+print('CENTRAL_URL:', repr(Config.CENTRAL_URL))
+print('CENTRAL_TOKEN set:', bool(Config.CENTRAL_TOKEN))
+"
 ```
 
-Tras el upgrade el backend se reinicia solo (Opción A) o por sistemctl (Opción B). Las migraciones de SQLite corren al startup (idempotentes, comparan `PRAGMA user_version`).
+### Para que el browser refleje los cambios
+
+Si solo cambió backend (Python/templates) → reload normal alcanza. Si cambió **JS o CSS** → el browser puede tener cacheado el viejo:
+
+- **Chrome / Firefox / Edge**: **Ctrl+Shift+R** (Cmd+Shift+R en Mac) — fuerza hard reload sin caché.
+- Si seguís viendo el viejo: DevTools → Network → checkbox "Disable cache" mientras tengas DevTools abierto.
+- En último caso: Ctrl+Shift+Delete → solo "Imágenes y archivos en caché" → última hora.
+
+### Despliegue remoto vía SSH (típico cuando central y cliente son máquinas distintas)
+
+Si vos hacés `git pull` desde tu workstation y deployás a un servidor remoto:
+
+```bash
+# En tu workstation:
+cd ~/snapshot-drive
+git pull --ff-only origin main
+
+# Sync remoto a un cliente (o central):
+ssh user@host 'cd ~/snapshot-drive && git pull --ff-only && \
+  rsync -a --exclude __pycache__ backend/ /opt/snapshot-V3/backend/ && \
+  rsync -a --delete --exclude .venv --exclude "logs/*" --exclude __pycache__ --exclude bundle \
+    frontend/ /opt/snapshot-V3/frontend/ && \
+  rsync -a core/ /opt/snapshot-V3/core/'
+
+# Restart remoto (sudo separado por si requiere password):
+ssh user@host 'sudo systemctl restart snapshot-backend.service'
+```
+
+### Diferencias específicas por MODO al hacer upgrade
+
+| Aspecto | `MODE=client` | `MODE=central` |
+|---|---|---|
+| Schema migrations | Corren igual (idempotentes) | Igual |
+| Heartbeats en vuelo | Si el cliente estaba mandando, gunicorn los aborta — se reencolan en `central_queue` y el healthcheck los drena después | El receptor está caído ~2s; los clientes reintentan con backoff |
+| Sesiones del browser | Sobreviven (cookie + DB persistente) | Igual |
+| Vinculación Drive (rclone.conf) | Intacta | Intacta |
+| Drive inventory cache | Intacta — `drive_inventory` sigue en DB; el botón "Refrescar" lo reconcilia si hace falta | Igual |
+| `/dashboard-central/*` | 404 (correcto, no aplica) | Funciona |
+| Timers systemd | `archive`/`db-archive`/`reconcile` siguen — si querés que tomen cambios de su drop-in, `sudo systemctl daemon-reload` (Opción A lo hace) | `healthcheck` con `alerts-sweep` sigue |
+
+### Si algo falla post-upgrade
+
+```bash
+# Ver el traceback completo
+sudo journalctl -u snapshot-backend.service --since "5 minutes ago" --no-pager | tail -80
+
+# Si /opt/snapshot-V3 quedó corrupto, re-instalá desde cero:
+sudo bash uninstall.sh -y     # NO usa --purge → preserva /etc + /var
+sudo bash install.sh -y       # bootstrap limpio, datos intactos
+```
+
+Las migraciones de SQLite corren al startup (idempotentes, comparan `PRAGMA user_version`). Una migración interrumpida deja el `user_version` en el valor anterior — al re-startear, vuelve a intentarla desde cero.
 
 ## Backup del propio sistema
 
