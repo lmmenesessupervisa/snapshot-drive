@@ -89,9 +89,21 @@ def _v2_jobs_actor(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN actor_user_id INTEGER")
 
 
+def _v3_users_mfa_disabled(conn: sqlite3.Connection) -> None:
+    """Flag por-usuario para deshabilitar MFA aunque el rol lo requiera.
+    Default 0 = comportamiento histórico (admin requiere enroll, otros opcional)."""
+    cur = conn.execute("PRAGMA table_info(users)")
+    cols = {r[1] for r in cur.fetchall()}
+    if cols and "mfa_disabled" not in cols:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN mfa_disabled INTEGER NOT NULL DEFAULT 0"
+        )
+
+
 MIGRATIONS: List[Tuple[int, Callable[[sqlite3.Connection], None]]] = [
     (1, _v1_create_auth_tables),
     (2, _v2_jobs_actor),
+    (3, _v3_users_mfa_disabled),
 ]
 CURRENT_VERSION = MIGRATIONS[-1][0]
 

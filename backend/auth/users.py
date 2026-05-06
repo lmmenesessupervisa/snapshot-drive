@@ -33,17 +33,22 @@ class User:
     created_at: str
     updated_at: str
     last_login_at: Optional[str]
+    mfa_disabled: bool = False
 
 
 _COLS = (
     "id,email,display_name,password_hash,role,mfa_secret,mfa_enrolled_at,"
     "status,failed_attempts,lock_count,locked_until,created_at,updated_at,"
-    "last_login_at"
+    "last_login_at,mfa_disabled"
 )
 
 
 def _row_to_user(row) -> User:
-    return User(*row)
+    # row puede ser sqlite3.Row o tupla. Convertimos posicionalmente y
+    # forzamos mfa_disabled a bool (sqlite guarda 0/1).
+    vals = list(row)
+    vals[-1] = bool(vals[-1])
+    return User(*vals)
 
 
 def _now() -> str:
@@ -117,6 +122,52 @@ def set_status(conn, user_id: int, status: str) -> None:
         (status, _now(), user_id),
     )
     conn.commit()
+    if cur.rowcount == 0:
+        raise UserNotFound(user_id)
+
+
+def set_mfa_disabled(conn, user_id: int, disabled: bool) -> None:
+    """True = login no pide TOTP ni fuerza enroll, aunque el rol sea admin."""
+    cur = conn.execute(
+        "UPDATE users SET mfa_disabled=?, updated_at=? WHERE id=?",
+        (1 if disabled else 0, _now(), user_id),
+    )
+    conn.commit()
+    if cur.rowcount == 0:
+        raise UserNotFound(user_id)
+
+
+def update_profile(
+    conn,
+    user_id: int,
+    *,
+    display_name: Optional[str] = None,
+    email: Optional[str] = None,
+) -> None:
+    """Actualiza solo los campos provistos. UNIQUE(email) → UserExists."""
+    sets = []
+    args: list = []
+    if display_name is not None:
+        sets.append("display_name=?")
+        args.append(display_name)
+    if email is not None:
+        sets.append("email=?")
+        args.append(email)
+    if not sets:
+        return
+    sets.append("updated_at=?")
+    args.append(_now())
+    args.append(user_id)
+    try:
+        cur = conn.execute(
+            f"UPDATE users SET {', '.join(sets)} WHERE id=?",
+            args,
+        )
+        conn.commit()
+    except sqlite3.IntegrityError as e:
+        if "email" in str(e).lower() or "UNIQUE" in str(e):
+            raise UserExists(email or "") from e
+        raise
     if cur.rowcount == 0:
         raise UserNotFound(user_id)
 

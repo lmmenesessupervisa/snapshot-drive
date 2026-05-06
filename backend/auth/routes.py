@@ -107,8 +107,14 @@ def login():
         _equalize(started)
         return jsonify(ok=False, error="invalid credentials"), 401
 
-    # Admin must enroll MFA before getting a session.
-    if user.role in MFA_REQUIRED_ROLES and not user.mfa_secret:
+    # Admin must enroll MFA before getting a session — UNLESS un admin
+    # marcó este usuario con mfa_disabled (override per-user, p. ej.
+    # cuentas de servicio o login en kioskos donde TOTP no aplica).
+    if (
+        user.role in MFA_REQUIRED_ROLES
+        and not user.mfa_secret
+        and not user.mfa_disabled
+    ):
         audit_mod.write_event(
             db, actor="web", event="login_ok", user_id=user.id,
             email=email, ip=ip, user_agent=ua,
@@ -117,8 +123,9 @@ def login():
         return jsonify(ok=True, require_mfa_enroll=True,
                        email=user.email)
 
-    # MFA challenge if enrolled
-    if user.mfa_secret:
+    # MFA challenge if enrolled — saltado si mfa_disabled (mantiene
+    # mfa_secret en DB para reactivar después sin re-enroll).
+    if user.mfa_secret and not user.mfa_disabled:
         from . import mfa
         if not mfa_code:
             return jsonify(ok=True, require_mfa=True, email=user.email)
@@ -193,9 +200,10 @@ def me():
     u = getattr(g, "current_user", None)
     if not u:
         return jsonify(ok=False, error="unauthenticated"), 401
-    return jsonify(ok=True, email=u.email, role=u.role,
+    return jsonify(ok=True, id=u.id, email=u.email, role=u.role,
                    display_name=u.display_name,
-                   mfa_enrolled=bool(u.mfa_secret))
+                   mfa_enrolled=bool(u.mfa_secret),
+                   mfa_disabled=bool(u.mfa_disabled))
 
 
 from .passwords import (
@@ -426,6 +434,7 @@ def _user_dict(u) -> dict:
         "role": u.role,
         "status": u.status,
         "mfa_enrolled": bool(u.mfa_secret),
+        "mfa_disabled": bool(u.mfa_disabled),
         "last_login_at": u.last_login_at,
     }
 
@@ -469,6 +478,90 @@ def create_user_route():
                                     else None)
 
 
+@auth_bp.post("/users/<int:uid>")
+@require_role("admin")
+def edit_user_route(uid: int):
+    """Edita display_name, email, role y/o mfa_disabled en una sola
+    llamada. Solo aplica los campos que vengan en el body. Guards:
+    no permite que un admin se cambie a sí mismo el rol o se quite MFA."""
+    payload = request.get_json(silent=True) or {}
+    db = _db()
+    target = users_mod.get_user_by_id(db, uid)
+    if target is None:
+        return jsonify(ok=False, error="user not found"), 404
+
+    is_self = (g.current_user.id == uid)
+
+    # Sanitiza y valida cada campo opcional
+    new_display = (payload.get("display_name") or "").strip() \
+        if "display_name" in payload else None
+    new_email = (payload.get("email") or "").strip().lower() \
+        if "email" in payload else None
+    new_role = (payload.get("role") or "").strip() \
+        if "role" in payload else None
+    new_mfa_disabled = payload.get("mfa_disabled") \
+        if "mfa_disabled" in payload else None
+
+    if new_display is not None and not new_display:
+        return jsonify(ok=False, error="display_name no puede ser vacío"), 400
+    if new_email is not None and "@" not in new_email:
+        return jsonify(ok=False, error="email inválido"), 400
+    if new_role is not None and new_role not in users_mod.VALID_ROLES:
+        return jsonify(ok=False, error="invalid role"), 400
+    if new_role is not None and is_self:
+        return jsonify(
+            ok=False,
+            error="no puedes cambiar tu propio rol — pídele a otro admin",
+        ), 400
+    if new_mfa_disabled is not None and is_self:
+        return jsonify(
+            ok=False,
+            error="no puedes desactivar tu propio MFA — pídele a otro admin",
+        ), 400
+
+    before = {
+        "display_name": target.display_name,
+        "email": target.email,
+        "role": target.role,
+        "mfa_disabled": bool(target.mfa_disabled),
+    }
+    after: dict = dict(before)
+
+    # Aplica perfil (display_name + email)
+    profile_kwargs: dict = {}
+    if new_display is not None and new_display != target.display_name:
+        profile_kwargs["display_name"] = new_display
+        after["display_name"] = new_display
+    if new_email is not None and new_email != target.email:
+        profile_kwargs["email"] = new_email
+        after["email"] = new_email
+    if profile_kwargs:
+        try:
+            users_mod.update_profile(db, uid, **profile_kwargs)
+        except users_mod.UserExists:
+            return jsonify(ok=False, error="email already exists"), 400
+
+    # Aplica rol
+    if new_role is not None and new_role != target.role:
+        users_mod.set_role(db, uid, new_role)
+        after["role"] = new_role
+
+    # Aplica flag MFA
+    if new_mfa_disabled is not None and bool(new_mfa_disabled) != bool(target.mfa_disabled):
+        users_mod.set_mfa_disabled(db, uid, bool(new_mfa_disabled))
+        after["mfa_disabled"] = bool(new_mfa_disabled)
+
+    if before != after:
+        audit_mod.write_event(
+            db, actor="web", event="user_edit",
+            user_id=uid, email=after["email"], ip=request.remote_addr,
+            detail={"before": before, "after": after, "by": g.current_user.email},
+        )
+
+    fresh = users_mod.get_user_by_id(db, uid)
+    return jsonify(ok=True, user=_user_dict(fresh))
+
+
 @auth_bp.post("/users/<int:uid>/set-role")
 @require_role("admin")
 def set_role_route(uid: int):
@@ -476,6 +569,8 @@ def set_role_route(uid: int):
     role = (payload.get("role") or "").strip()
     if role not in users_mod.VALID_ROLES:
         return jsonify(ok=False, error="invalid role"), 400
+    if g.current_user.id == uid:
+        return jsonify(ok=False, error="no puedes cambiar tu propio rol"), 400
     try:
         users_mod.set_role(_db(), uid, role)
     except users_mod.UserNotFound:

@@ -2,8 +2,8 @@
 {% block title %}Usuarios{% endblock %}
 {% block header %}Usuarios{% endblock %}
 {% block content %}
-<div class="max-w-5xl space-y-6">
-  <div class="card">
+<div class="max-w-7xl space-y-6">
+  <div class="card overflow-hidden">
     <div class="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
       <div>
         <h2 class="font-semibold">Cuentas del panel</h2>
@@ -13,22 +13,24 @@
       </div>
       <button id="btn-create" class="btn-primary">+ Crear usuario</button>
     </div>
-    <table class="w-full text-sm">
-      <thead>
-        <tr>
-          <th class="text-left">Email</th>
-          <th class="text-left">Nombre</th>
-          <th class="text-left">Rol</th>
-          <th class="text-left">MFA</th>
-          <th class="text-left">Estado</th>
-          <th class="text-left">Último login</th>
-          <th class="text-right">Acciones</th>
-        </tr>
-      </thead>
-      <tbody id="rows">
-        <tr><td colspan="7" class="text-center text-[var(--muted)]">Cargando…</td></tr>
-      </tbody>
-    </table>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr>
+            <th class="text-left">Email</th>
+            <th class="text-left">Nombre</th>
+            <th class="text-left">Rol</th>
+            <th class="text-left">MFA</th>
+            <th class="text-left">Estado</th>
+            <th class="text-left whitespace-nowrap">Último login</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="rows">
+          <tr><td colspan="7" class="text-center text-[var(--muted)]">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -50,6 +52,46 @@
       <button type="submit" class="btn-primary">Crear</button>
     </div>
     <p id="create-msg" class="hidden text-sm text-rose-500"></p>
+  </form>
+</dialog>
+
+<dialog id="dlg-edit" class="rounded-lg p-0 bg-transparent">
+  <form id="form-edit" class="card p-6 space-y-3 min-w-[24rem]">
+    <h2 class="text-lg font-semibold">Editar usuario</h2>
+    <input type="hidden" name="id">
+    <label class="block">
+      <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Email</span>
+      <input name="email" type="email" required class="input mono mt-1">
+    </label>
+    <label class="block">
+      <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Nombre</span>
+      <input name="display_name" type="text" required class="input mt-1">
+    </label>
+    <label class="block">
+      <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">Rol</span>
+      <select name="role" class="input mt-1">
+        <option value="operator">operator</option>
+        <option value="auditor">auditor</option>
+        <option value="admin">admin</option>
+      </select>
+      <span id="edit-role-self-hint" class="hidden text-[11px] text-[var(--muted-2)] mt-1 block">
+        No puedes cambiar tu propio rol. Pídele a otro admin.
+      </span>
+    </label>
+    <label class="flex items-center gap-2 cursor-pointer pt-1">
+      <input name="mfa_disabled" type="checkbox" class="accent-[var(--primary)]">
+      <span class="text-sm">Desactivar MFA para este usuario</span>
+    </label>
+    <p class="text-[11px] text-[var(--muted)]">
+      Si activas esto, el login NO le pedirá enroll ni código TOTP, aunque
+      su rol sea admin. El secret existente se conserva (puedes reactivar
+      luego sin re-enroll). No puedes desactivar tu propio MFA.
+    </p>
+    <div class="flex justify-end gap-2 pt-2">
+      <button type="button" id="cancel-edit" class="btn-secondary">Cancelar</button>
+      <button type="submit" class="btn-primary">Guardar</button>
+    </div>
+    <p id="edit-msg" class="hidden text-sm text-rose-500"></p>
   </form>
 </dialog>
 
