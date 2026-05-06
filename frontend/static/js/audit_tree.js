@@ -448,7 +448,6 @@ function flatClients() {
   }
   return out;
 }
-window.showAuditView = showView;
 
 function spotlightSortable(headers, rows) {
   // headers: [{key, label, align?: 'right'|'left', fmt?}]
