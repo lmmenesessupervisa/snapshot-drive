@@ -2,6 +2,19 @@
 {% block title %}Alertas — Central{% endblock %}
 {% block header %}Alertas{% endblock %}
 {% block content %}
+{# ───── Helpers de presentación (Jinja macros). Un solo archivo,
+       sin tocar JS — Jinja se encarga de traducir códigos a humano. ───── #}
+{% set TYPE_LABEL = {
+    'no_heartbeat':   ('Sin heartbeat', 'El cliente dejó de reportar al central. Probable: VM apagada, sin red, snapshot-backend caído, o token revocado.'),
+    'folder_missing': ('Carpeta faltante', 'Una de las rutas configuradas en BACKUP_PATHS del cliente ya no existe en el filesystem. El backup ignora silenciosamente esa ruta.'),
+    'backup_shrink':  ('Backup encogido', 'El último backup pesa significativamente menos que el anterior. Posible causa: perdiste data, una DB se vació, o algún path dejó de incluirse.'),
+} %}
+{% set SEVERITY_LABEL = {
+    'critical': ('Crítica', 'chip-rose'),
+    'warning':  ('Advertencia', 'chip-amber'),
+    'info':     ('Información', 'chip-slate'),
+} %}
+
 <div class="space-y-6">
 
   <div class="flex items-center justify-between gap-3 flex-wrap">
@@ -26,6 +39,10 @@
   <div class="card overflow-hidden">
     <div class="px-5 py-4 border-b border-[var(--border)]">
       <h2 class="font-semibold">Alertas</h2>
+      <p class="text-xs text-[var(--muted)] mt-1">
+        Pasá el mouse sobre cualquier celda para ver el detalle técnico.
+        "Reconocer" cierra la alerta como atendida — útil para shrink que no auto-resuelve.
+      </p>
     </div>
     <table class="min-w-full text-sm">
       <thead>
@@ -41,37 +58,108 @@
       </thead>
       <tbody>
       {% for a in rows %}
+        {% set type_label, type_help = TYPE_LABEL.get(a.type, (a.type, 'Tipo no documentado')) %}
+        {% set sev_label, sev_chip = SEVERITY_LABEL.get(a.severity, (a.severity, 'chip-slate')) %}
         <tr data-alert-id="{{ a.id }}">
-          <td class="mono">{{ a.type }}</td>
           <td>
-            {% if a.severity == 'critical' %}
-              <span class="chip chip-rose">{{ a.severity }}</span>
-            {% elif a.severity == 'warning' %}
-              <span class="chip chip-amber">{{ a.severity }}</span>
+            <div class="font-medium" title="{{ type_help }} (código: {{ a.type }})">{{ type_label }}</div>
+            <div class="text-[10px] text-[var(--muted-2)] mono">{{ a.type }}</div>
+          </td>
+          <td>
+            <span class="chip {{ sev_chip }}" title="{{ sev_help if sev_help is defined else '' }}">{{ sev_label }}</span>
+          </td>
+          <td>
+            {% if a.client_proyecto %}
+              <span class="font-medium">{{ a.client_proyecto }}</span>
+              <span class="text-[10px] text-[var(--muted-2)] block mono">id #{{ a.client_id }}</span>
             {% else %}
-              <span class="chip chip-slate">{{ a.severity }}</span>
+              <span class="text-[var(--muted)]">cliente #{{ a.client_id }} (borrado)</span>
             {% endif %}
           </td>
-          <td>#{{ a.client_id }}</td>
-          <td>{{ a.target_id or "—" }}</td>
-          <td class="mono text-xs">{{ a.triggered_at }}</td>
+          <td>
+            {% if a.target_label %}
+              <span class="chip chip-slate" style="font-size:.65rem;text-transform:none;letter-spacing:0">{{ a.target_category }}/{{ a.target_subkey }}</span>
+              <span class="mono text-xs ml-1">{{ a.target_label }}</span>
+            {% elif a.target_id %}
+              <span class="text-[var(--muted)]">target #{{ a.target_id }} (borrado)</span>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>
+            <span class="audit-time-rel" data-iso="{{ a.triggered_at }}" title="{{ a.triggered_at }}">{{ a.triggered_at[:19].replace('T',' ') }}</span>
+          </td>
           <td>
             {% if a.resolved_at %}
-              <span class="chip chip-emerald">resuelto</span>
+              <span class="chip chip-emerald" title="Cerrada el {{ a.resolved_at[:19].replace('T',' ') }} UTC">resuelta</span>
             {% else %}
-              <span class="chip chip-amber">activa</span>
+              <span class="chip chip-amber" title="La alerta sigue abierta. Auto-resuelve cuando la condición desaparece, o podés reconocerla manualmente.">activa</span>
             {% endif %}
           </td>
           <td class="text-right">
             {% if not a.resolved_at and g.current_user and g.current_user.role in ('admin', 'operator') %}
-            <button class="ack-btn btn-secondary text-xs">Acknowledge</button>
+            <button class="ack-btn btn-secondary text-xs"
+                    title="Marcar como revisada. Cierra la alerta sin que la condición tenga que desaparecer (útil para backup_shrink que no auto-resuelve).">
+              Reconocer
+            </button>
             {% endif %}
           </td>
         </tr>
+        {# ─── Fila de detalle traducido a humano según el tipo ─── #}
         {% if a.detail %}
-        <tr>
-          <td colspan="7" class="text-xs mono text-[var(--muted)]">
-            {{ a.detail | tojson }}
+        <tr class="alert-detail-row">
+          <td colspan="7" class="text-xs text-[var(--muted)] py-2 px-5 border-t border-[var(--border)] bg-[var(--sidebar)]">
+            {% if a.type == 'backup_shrink' %}
+              {% set prev_b = a.detail.get('prev_bytes', 0) %}
+              {% set new_b  = a.detail.get('new_bytes', 0) %}
+              {% set pct    = a.detail.get('pct', 0) %}
+              <span class="font-medium text-[var(--foreground)]">¿Qué pasó?</span>
+              El backup más reciente pesa
+              <span class="font-medium text-[var(--foreground)]">{{ pct }}% menos</span>
+              que el anterior. Anterior:
+              <span class="mono">{{ '{:,}'.format(prev_b) }} bytes</span>
+              · Actual:
+              <span class="mono">{{ '{:,}'.format(new_b) }} bytes</span>.
+              <br>
+              <span class="text-[var(--muted-2)]">
+                Si esperabas la reducción (p. ej. limpiaste tablas), reconocé la alerta.
+                Si NO la esperabas, abrí el cliente en Drive y verificá qué se incluyó.
+              </span>
+            {% elif a.type == 'no_heartbeat' %}
+              {% set hours = a.detail.get('hours_since', '?') %}
+              {% set last_ts = a.detail.get('last_heartbeat_ts', '') %}
+              <span class="font-medium text-[var(--foreground)]">¿Qué pasó?</span>
+              El cliente lleva
+              <span class="font-medium text-[var(--foreground)]">{{ hours }} horas</span>
+              sin reportar.
+              {% if last_ts %}Último heartbeat: <span class="mono">{{ last_ts[:19].replace('T', ' ') }}</span> UTC.{% endif %}
+              <br>
+              <span class="text-[var(--muted-2)]">
+                Verificá en el cliente: <code class="mono">systemctl status snapshot-backend</code>,
+                conectividad de red al central, y que el token siga vigente.
+              </span>
+            {% elif a.type == 'folder_missing' %}
+              {% set paths = a.detail.get('missing_paths', []) %}
+              <span class="font-medium text-[var(--foreground)]">¿Qué pasó?</span>
+              Estas rutas configuradas en
+              <code class="mono">BACKUP_PATHS</code>
+              ya no existen en el filesystem del cliente:
+              <ul class="list-disc list-inside ml-2 mt-1">
+                {% for p in paths %}<li class="mono">{{ p }}</li>{% endfor %}
+              </ul>
+              <span class="text-[var(--muted-2)]">
+                El backup las ignora silenciosamente. Sacalas de la lista
+                en Ajustes del cliente, o crealas si era un error.
+              </span>
+            {% else %}
+              <span class="font-medium text-[var(--foreground)]">Detalle:</span>
+              <span class="mono">{{ a.detail | tojson }}</span>
+            {% endif %}
+            {% if a.detail.get('acknowledged_by') %}
+              <div class="mt-1 text-[10px] text-[var(--muted-2)]">
+                Reconocida por: <span class="mono">{{ a.detail.acknowledged_by }}</span>
+              </div>
+            {% endif %}
           </td>
         </tr>
         {% endif %}

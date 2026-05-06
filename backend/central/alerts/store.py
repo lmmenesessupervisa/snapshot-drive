@@ -107,21 +107,44 @@ def get_by_id(conn: sqlite3.Connection, alert_id: int) -> Optional[dict]:
 
 
 def list_active(conn: sqlite3.Connection, *, limit: int = 200) -> list[dict]:
-    rows = conn.execute(
-        f"SELECT {_SELECT_COLS} FROM central_alerts "
-        "WHERE resolved_at IS NULL ORDER BY triggered_at DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
-    return [_row_to_dict(r) for r in rows]
+    return _list_with_join(conn, where="WHERE a.resolved_at IS NULL", limit=limit)
 
 
 def list_recent(conn: sqlite3.Connection, *, limit: int = 200) -> list[dict]:
-    rows = conn.execute(
-        f"SELECT {_SELECT_COLS} FROM central_alerts "
-        "ORDER BY triggered_at DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
-    return [_row_to_dict(r) for r in rows]
+    return _list_with_join(conn, where="", limit=limit)
+
+
+def _list_with_join(conn: sqlite3.Connection, *, where: str, limit: int) -> list[dict]:
+    """Lista alertas con JOIN a clients/targets para que la UI pueda
+    mostrar el nombre del proyecto y el target en human-readable, en
+    vez de los IDs crudos.
+    """
+    sql = f"""
+        SELECT a.id, a.type, a.client_id, a.target_id, a.severity,
+               a.triggered_at, a.last_seen_at, a.resolved_at,
+               a.notified_at, a.detail_json,
+               c.proyecto AS client_proyecto,
+               t.category AS target_category,
+               t.subkey   AS target_subkey,
+               t.label    AS target_label
+        FROM central_alerts a
+        LEFT JOIN clients c ON c.id = a.client_id
+        LEFT JOIN targets t ON t.id = a.target_id
+        {where}
+        ORDER BY a.triggered_at DESC
+        LIMIT ?
+    """
+    rows = conn.execute(sql, (limit,)).fetchall()
+    cols = ("id", "type", "client_id", "target_id", "severity",
+            "triggered_at", "last_seen_at", "resolved_at",
+            "notified_at", "detail_json",
+            "client_proyecto", "target_category", "target_subkey", "target_label")
+    out = []
+    for r in rows:
+        d = dict(zip(cols, r))
+        d["detail"] = json.loads(d.pop("detail_json") or "{}")
+        out.append(d)
+    return out
 
 
 def mark_notified(conn: sqlite3.Connection, alert_id: int) -> None:
