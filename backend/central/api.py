@@ -29,6 +29,31 @@ def ping():
     return jsonify(ok=True, version=current_app.config.get("VERSION", "dev"))
 
 
+@central_api_bp.get("/auth-check")
+def auth_check():
+    """Valida el Bearer token sin crear ningún central_event.
+
+    Útil para que el cliente compruebe vinculación + auth desde su UI
+    de Ajustes ("Probar conexión") sin contaminar el audit del central.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return jsonify(ok=False, error="missing bearer token"), 401
+    plaintext = auth[7:].strip()
+    db = _db()
+    info = tok.verify(db, plaintext)
+    if info is None:
+        return jsonify(ok=False, error="invalid or revoked token"), 401
+    client = m.get_client(db, info.client_id)
+    if client is None:
+        return jsonify(ok=False, error="client gone"), 410
+    return jsonify(
+        ok=True,
+        client={"id": client["id"], "proyecto": client["proyecto"]},
+        token={"label": info.label, "scope": info.scope},
+    )
+
+
 @central_api_bp.post("/heartbeat")
 def heartbeat():
     raw = request.get_data() or b""

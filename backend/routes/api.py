@@ -203,6 +203,89 @@ def oauth_device_poll():
     return _ok({"status": "linked"})
 
 
+# ---------- Client → Central link (CENTRAL_URL / CENTRAL_TOKEN) ----------
+@api_bp.get("/client/central-link")
+@require_role("admin")
+def client_central_link_get():
+    if Config.MODE != "client":
+        return _err("solo disponible en MODE=client", 404)
+    return _ok(archive_config.get_client_central_link())
+
+
+@api_bp.post("/client/central-link")
+@require_role("admin")
+def client_central_link_set():
+    if Config.MODE != "client":
+        return _err("solo disponible en MODE=client", 404)
+    payload = request.get_json(silent=True) or {}
+    try:
+        res = archive_config.set_client_central_link(payload)
+        _db().audit(
+            "api", "central-link-set",
+            f"url={res.get('central_url') or '-'} token={'set' if res.get('token_set') else 'unset'}",
+        )
+        return _ok(res)
+    except ArchiveConfigError as e:
+        return _err(str(e), 400)
+
+
+@api_bp.post("/client/central-link/test")
+@require_role("admin")
+def client_central_link_test():
+    """Prueba la vinculación: ping (URL) + auth-check (token).
+
+    Devuelve `{ok, url_ok, token_ok, central_version?, client_proyecto?,
+    error?}`. NO crea ningún central_event en el central; el endpoint
+    /api/v1/auth-check valida sin side effects.
+    """
+    if Config.MODE != "client":
+        return _err("solo disponible en MODE=client", 404)
+    payload = request.get_json(silent=True) or {}
+    url = (payload.get("central_url") or Config.CENTRAL_URL or "").strip().rstrip("/")
+    token = (payload.get("central_token") or Config.CENTRAL_TOKEN or "").strip()
+    if not url:
+        return _err("CENTRAL_URL no configurado", 400)
+    import requests as _rq
+    out = {"ok": False, "url_ok": False, "token_ok": False}
+    try:
+        r = _rq.get(url + "/api/v1/ping", timeout=5)
+        out["url_ok"] = (r.status_code == 200)
+        if r.status_code == 200:
+            try:
+                out["central_version"] = r.json().get("version")
+            except Exception:
+                pass
+        else:
+            out["error"] = f"ping rc={r.status_code}: {r.text[:200]}"
+            return _ok(out)
+    except _rq.RequestException as e:
+        out["error"] = f"no se pudo conectar: {str(e)[:200]}"
+        return _ok(out)
+
+    if not token:
+        out["error"] = "URL alcanzable, falta token para validar auth"
+        return _ok(out)
+    try:
+        r = _rq.get(
+            url + "/api/v1/auth-check",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5,
+        )
+        if r.status_code == 200:
+            out["token_ok"] = True
+            try:
+                body = r.json()
+                out["client_proyecto"] = (body.get("client") or {}).get("proyecto")
+            except Exception:
+                pass
+            out["ok"] = True
+        else:
+            out["error"] = f"auth-check rc={r.status_code}: {r.text[:200]}"
+    except _rq.RequestException as e:
+        out["error"] = f"auth-check falló: {str(e)[:200]}"
+    return _ok(out)
+
+
 # ---------- Central: AUDIT_REMOTE_PATH + audit-viewer toggle ----------
 @api_bp.get("/central/config")
 @require_role("admin")

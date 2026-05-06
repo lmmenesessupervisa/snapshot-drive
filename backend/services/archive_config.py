@@ -460,6 +460,65 @@ def set_central_config(values: dict) -> dict:
     return get_central_config()
 
 
+# ---------------------------------------------------------------------------
+# Client-side: vinculación con un servidor central (CENTRAL_URL/CENTRAL_TOKEN)
+# ---------------------------------------------------------------------------
+
+_CENTRAL_URL_RE = re.compile(r"^https?://[A-Za-z0-9._:\-/]+$")
+_CENTRAL_TOKEN_RE = re.compile(r"^[A-Za-z0-9_\-]{16,256}$")
+
+
+def get_client_central_link() -> dict:
+    """Estado de la vinculación cliente→central. NUNCA devuelve el token
+    en plaintext; solo si está seteado o no."""
+    vals = _read(_local_conf_path())
+    url = (vals.get("CENTRAL_URL") or "").strip()
+    tok = (vals.get("CENTRAL_TOKEN") or "").strip()
+    return {
+        "central_url": url,
+        "token_set": bool(tok),
+        "configured": bool(url and tok),
+    }
+
+
+def set_client_central_link(values: dict) -> dict:
+    """Setea CENTRAL_URL y/o CENTRAL_TOKEN en local.conf. Pasar
+    `central_token=""` deja el token actual intacto (no lo borra) — para
+    borrarlo, pasa `clear_token=True`. Igual con `central_url`."""
+    updates: dict[str, str] = {}
+
+    if "central_url" in values:
+        url = (values.get("central_url") or "").strip().rstrip("/")
+        if url:
+            if not _CENTRAL_URL_RE.match(url):
+                raise ArchiveConfigError(
+                    "CENTRAL_URL inválida. Esperado http:// o https:// + host."
+                )
+            updates["CENTRAL_URL"] = url
+        elif values.get("clear_url"):
+            updates["CENTRAL_URL"] = ""
+
+    if "central_token" in values:
+        tok = (values.get("central_token") or "").strip()
+        if tok:
+            if not _CENTRAL_TOKEN_RE.match(tok):
+                raise ArchiveConfigError(
+                    "Token inválido. Esperado 16-256 chars alfanuméricos, '_' o '-'."
+                )
+            updates["CENTRAL_TOKEN"] = tok
+        elif values.get("clear_token"):
+            updates["CENTRAL_TOKEN"] = ""
+
+    if updates:
+        _write_back(updates)
+        if "CENTRAL_URL" in updates:
+            Config.CENTRAL_URL = updates["CENTRAL_URL"].rstrip("/")
+        if "CENTRAL_TOKEN" in updates:
+            Config.CENTRAL_TOKEN = updates["CENTRAL_TOKEN"]
+
+    return get_client_central_link()
+
+
 def generate_keypair() -> dict:
     """Run age-keygen and return public + private. Does NOT persist the
     private key — it's the caller's responsibility to copy it now.

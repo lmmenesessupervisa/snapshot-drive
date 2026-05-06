@@ -287,6 +287,69 @@
     </div>
   </div>
 
+  {% if deploy_mode != 'central' %}
+  <!-- Vinculación con central — solo MODE=client -->
+  <div class="card" id="central-link-card">
+    <div class="px-5 py-4 border-b border-[var(--border)]">
+      <h2 class="font-semibold">Vinculación con servidor central</h2>
+      <p class="text-xs text-[var(--muted)] mt-1">
+        Cuando se configura, cada backup envía un heartbeat al central
+        con metadata (host, tamaño, status). El central usa esos
+        heartbeats para alertas <code class="mono">no_heartbeat</code>,
+        <code class="mono">backup_shrink</code>, etc. Sin esto, el cliente
+        respalda igual a Drive — solo que el central no se entera. Pídele
+        al admin del central que cree un Cliente con tu proyecto y te
+        emita un token (<a href="#" class="text-brand-500 hover:underline">/dashboard-central/clients</a>).
+      </p>
+    </div>
+    <div class="p-5 space-y-4 text-sm">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+        <div class="md:col-span-2">
+          <label class="block">
+            <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+              Base URL de la API <span class="text-[var(--muted-2)] normal-case">(ej: <code class="mono">https://central.empresa.com</code> o <code class="mono">http://10.0.0.5:5070</code>)</span>
+            </span>
+            <input id="cl-url" type="text" class="input mono mt-1"
+                   placeholder="https://central.empresa.com">
+            <span class="text-[11px] text-[var(--muted)] block mt-1">
+              No agregues <code class="mono">/api/v1/heartbeat</code> al final — el cliente lo añade solo. Solo dominio + puerto.
+            </span>
+          </label>
+          <label class="inline-flex items-center gap-2 text-xs text-[var(--muted)] mt-2 cursor-pointer">
+            <input id="cl-allow-http" type="checkbox" class="accent-[var(--primary)]">
+            <span>Permitir HTTP en red local</span>
+            <span class="text-[var(--muted-2)]">(desmárcalo en producción; HTTPS recomendado)</span>
+          </label>
+        </div>
+        <div>
+          <span class="text-[11px] uppercase tracking-wider text-[var(--muted)] block mb-1">Estado</span>
+          <span id="cl-status" class="chip chip-slate">cargando…</span>
+        </div>
+      </div>
+      <label class="block">
+        <span class="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+          Token Bearer
+          <span id="cl-token-state" class="ml-1 text-[var(--muted-2)]"></span>
+        </span>
+        <input id="cl-token" type="password" class="input mono mt-1" autocomplete="new-password"
+               placeholder="dejar vacío para no modificar">
+        <span class="text-[11px] text-[var(--muted)] block mt-1">
+          Pégalo aquí tal cual te lo dieron al emitirlo. No se guarda en
+          el browser; va directo a <code class="mono">/etc/snapshot-v3/snapshot.local.conf</code>.
+        </span>
+      </label>
+      <label class="inline-flex items-center gap-2 text-xs text-[var(--muted)]">
+        <input id="cl-token-clear" type="checkbox"> Borrar token guardado
+      </label>
+      <div class="flex items-center gap-2 flex-wrap">
+        <button id="cl-test" class="btn-secondary">Probar conexión</button>
+        <button id="cl-save" class="btn-primary">Guardar</button>
+        <span id="cl-test-result" class="hidden text-xs ml-auto"></span>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   {% if deploy_mode == 'central' %}
   <!-- Alertas (sub-D) — solo en MODE=central -->
   <div class="card">

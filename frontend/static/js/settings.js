@@ -621,6 +621,118 @@ document.addEventListener("click", async (e) => {
   }
 });
 
+// ============================================================
+// Vinculación cliente → central (CENTRAL_URL/CENTRAL_TOKEN)
+// Solo se monta si la card existe (MODE=client la incluye via Jinja).
+// ============================================================
+function _setCentralLinkChip(kind, msg) {
+  const el = document.getElementById('cl-status');
+  if (!el) return;
+  el.classList.remove('chip-emerald', 'chip-amber', 'chip-rose', 'chip-slate');
+  el.classList.add(kind === 'ok' ? 'chip-emerald'
+                  : kind === 'warn' ? 'chip-amber'
+                  : kind === 'fail' ? 'chip-rose'
+                  : 'chip-slate');
+  el.textContent = msg;
+}
+
+function _setCentralLinkResult(kind, msg) {
+  const el = document.getElementById('cl-test-result');
+  if (!el) return;
+  el.classList.remove('hidden', 'chip', 'chip-emerald', 'chip-rose', 'chip-slate');
+  el.classList.add('chip');
+  el.classList.add(kind === 'ok' ? 'chip-emerald' : kind === 'fail' ? 'chip-rose' : 'chip-slate');
+  el.textContent = msg;
+}
+
+async function loadCentralLink() {
+  if (!document.getElementById('central-link-card')) return;
+  try {
+    const cfg = await API.get('/client/central-link');
+    document.getElementById('cl-url').value = cfg.central_url || '';
+    // Si el URL guardado empieza con http:// auto-tildeamos el flag para
+    // que el operador no piense que necesita "permiso explícito" cada vez.
+    document.getElementById('cl-allow-http').checked =
+      (cfg.central_url || '').startsWith('http://');
+    document.getElementById('cl-token-state').textContent =
+      cfg.token_set ? '(configurado, deja vacío para conservar)' : '(sin configurar)';
+    if (cfg.configured) _setCentralLinkChip('ok', 'configurado');
+    else if (cfg.central_url) _setCentralLinkChip('warn', 'falta token');
+    else _setCentralLinkChip('slate', 'sin vincular');
+  } catch (e) {
+    _setCentralLinkChip('fail', 'error: ' + e.message);
+  }
+}
+
+// Bloquea http:// si "Permitir HTTP" está desmarcado. Devuelve null
+// si el URL es válido para enviar; o un mensaje de error si no.
+function _validateCentralUrl(url) {
+  url = (url || '').trim();
+  if (!url) return null; // vacío = no se modifica
+  const allowHttp = document.getElementById('cl-allow-http')?.checked;
+  if (url.startsWith('http://') && !allowHttp) {
+    return 'URL es HTTP. Marca "Permitir HTTP en red local" si es a propósito.';
+  }
+  if (!url.startsWith('https://') && !url.startsWith('http://')) {
+    return 'URL debe empezar con https:// (o http:// si está en red local).';
+  }
+  return null;
+}
+
+if (document.getElementById('cl-test')) {
+  document.getElementById('cl-test').onclick = async () => {
+    const url = document.getElementById('cl-url').value.trim();
+    const validErr = _validateCentralUrl(url);
+    if (validErr) { _setCentralLinkResult('fail', validErr); return; }
+    _setCentralLinkResult('info', 'probando…');
+    document.getElementById('cl-test').disabled = true;
+    try {
+      // Si pegaste URL/token nuevos en el form, los probamos antes de guardar.
+      const body = {};
+      const tok = document.getElementById('cl-token').value.trim();
+      if (url) body.central_url = url;
+      if (tok) body.central_token = tok;
+      const r = await API.post('/client/central-link/test', body);
+      if (r.ok) {
+        const proy = r.client_proyecto ? ` · proyecto: ${r.client_proyecto}` : '';
+        _setCentralLinkResult('ok', `OK · central ${r.central_version || '?'}${proy}`);
+      } else if (r.url_ok && !r.token_ok) {
+        _setCentralLinkResult('fail', 'URL OK, token inválido: ' + (r.error || ''));
+      } else if (!r.url_ok) {
+        _setCentralLinkResult('fail', 'URL no alcanzable: ' + (r.error || ''));
+      } else {
+        _setCentralLinkResult('fail', r.error || 'fallo desconocido');
+      }
+    } catch (e) {
+      _setCentralLinkResult('fail', e.message);
+    } finally {
+      document.getElementById('cl-test').disabled = false;
+    }
+  };
+
+  document.getElementById('cl-save').onclick = async () => {
+    const url = document.getElementById('cl-url').value.trim();
+    const validErr = _validateCentralUrl(url);
+    if (validErr) { toast(validErr, 'error'); return; }
+    const body = { central_url: url };
+    const tokVal = document.getElementById('cl-token').value;
+    if (tokVal) body.central_token = tokVal;
+    if (document.getElementById('cl-token-clear').checked) {
+      body.central_token = '';
+      body.clear_token = true;
+    }
+    try {
+      await API.post('/client/central-link', body);
+      toast('Vinculación con central guardada', 'success');
+      document.getElementById('cl-token').value = '';
+      document.getElementById('cl-token-clear').checked = false;
+      loadCentralLink();
+    } catch (e) {
+      toast('Error: ' + e.message, 'error');
+    }
+  };
+}
+
 // --- boot ---
 loadStatus();
 loadConfig();
@@ -629,3 +741,4 @@ loadDbConfig();
 loadCryptoConfig();
 loadAlertsConfig();
 loadScheduler();
+loadCentralLink();
